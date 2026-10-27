@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { dateForDay, dayForDate, DAYS, type Day, shortDate, weekLabel } from "@/lib/week";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type View = "learner" | "parent";
+type AuthMode = "signin" | "signup";
 type Category = "Math" | "Reading" | "Writing" | "History" | "Life Skills" | "Creative";
 
 interface Task {
@@ -57,6 +60,49 @@ function loadDashboard(): StoredDashboard {
   }
 }
 
+async function loadSupabaseDashboard(client: SupabaseClient, userId: string, importLocal = true): Promise<StoredDashboard> {
+  const [{ data: settings, error: settingsError }, { data: tasks, error: tasksError }, { data: events, error: eventsError }] = await Promise.all([
+    client.from("dashboard_settings").select("learner_name, sick_days, initialized").eq("user_id", userId).maybeSingle(),
+    client.from("tasks").select("id, name, category, day, xp, created_at").eq("user_id", userId).order("created_at"),
+    client.from("xp_events").select("id, task_id, amount, reason, earned_at").eq("user_id", userId).order("earned_at"),
+  ]);
+  if (settingsError) throw settingsError;
+  if (tasksError) throw tasksError;
+  if (eventsError) throw eventsError;
+
+  if (!settings?.initialized && importLocal) {
+    const local = loadDashboard();
+    const activeLocalTasks = new Set<string>();
+    for (const event of local.xpEvents) {
+      if (event.amount > 0) activeLocalTasks.add(event.taskId);
+      if (event.amount < 0) activeLocalTasks.delete(event.taskId);
+    }
+    const { error: settingsUpsertError } = await client.from("dashboard_settings").upsert({ user_id: userId, learner_name: local.learnerName, sick_days: local.sickDays, initialized: true });
+    if (settingsUpsertError) throw settingsUpsertError;
+    for (const task of local.tasks) {
+      const { data: inserted, error: insertError } = await client.from("tasks").insert({ user_id: userId, name: task.name, category: task.category, day: task.day, xp: task.xp }).select("id").single();
+      if (insertError) throw insertError;
+      if (activeLocalTasks.has(task.id)) {
+        const { error: completionError } = await client.rpc("record_task_completion", { p_task_id: inserted.id, p_complete: true });
+        if (completionError) throw completionError;
+      }
+    }
+    return loadSupabaseDashboard(client, userId, false);
+  }
+
+  if (!settings) {
+    const { error } = await client.from("dashboard_settings").insert({ user_id: userId });
+    if (error) throw error;
+  }
+
+  return {
+    learnerName: settings?.learner_name ?? defaultDashboard.learnerName,
+    sickDays: (settings?.sick_days ?? []) as Day[],
+    tasks: (tasks ?? []).map((task) => ({ id: task.id, name: task.name, category: task.category as Category, day: task.day as Day, xp: task.xp })),
+    xpEvents: (events ?? []).map((event) => ({ id: event.id, taskId: event.task_id, amount: event.amount, earnedAt: event.earned_at, reason: event.reason as XPEvent["reason"] })),
+  };
+}
+
 function ProgressTracker({ label, earned, target, tone, detail }: { label: string; earned: number; target: number; tone: "daily" | "weekly"; detail: string }) {
   const rawPercent = target > 0 ? Math.round((earned / target) * 100) : 0;
   const barPercent = target > 0 ? Math.min(100, rawPercent) : earned > 0 ? 100 : 0;
@@ -71,6 +117,7 @@ function ProgressTracker({ label, earned, target, tone, detail }: { label: strin
 }
 
 export function WeeklyDashboard() {
+  const supabase = getSupabaseBrowserClient();
   const [view, setView] = useState<View>("learner");
   const [celebrationDay, setCelebrationDay] = useState<Day | null>(null);
   const [showParentGate, setShowParentGate] = useState(false);
@@ -78,22 +125,77 @@ export function WeeklyDashboard() {
   const [parentGateError, setParentGateError] = useState(false);
   const [dashboard, setDashboard] = useState<StoredDashboard>(defaultDashboard);
   const [ready, setReady] = useState(false);
+  const [authChecked, setAuthChecked] = useState(!supabase);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [syncError, setSyncError] = useState("");
   const [taskName, setTaskName] = useState("");
   const [taskXP, setTaskXP] = useState(20);
   const [taskDay, setTaskDay] = useState<Day>("Monday");
   const [taskCategory, setTaskCategory] = useState<Category>("Math");
 
   useEffect(() => {
+    if (supabase) {
+      const client = supabase;
+      client.auth.getSession().then(({ data }) => {
+        setUserId(data.session?.user.id ?? null);
+        setAuthChecked(true);
+      });
+      const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
+        window.requestAnimationFrame(() => {
+          setUserId(session?.user.id ?? null);
+          setAuthChecked(true);
+        });
+      });
+      return () => listener.subscription.unsubscribe();
+    }
     const frame = window.requestAnimationFrame(() => {
       setDashboard(loadDashboard());
       setReady(true);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
-    if (ready) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dashboard));
-  }, [dashboard, ready]);
+    if (!supabase || !userId) return;
+    let active = true;
+    const client = supabase;
+    const refresh = async () => {
+      try {
+        const next = await loadSupabaseDashboard(client, userId);
+        if (active) {
+          setDashboard(next);
+          setReady(true);
+          setSyncError("");
+        }
+      } catch (error) {
+        if (active) setSyncError(error instanceof Error ? error.message : "Unable to synchronize the dashboard.");
+      }
+    };
+    void refresh();
+    const channel = client.channel(`dashboard-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dashboard_settings", filter: `user_id=eq.${userId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `user_id=eq.${userId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "xp_events", filter: `user_id=eq.${userId}` }, refresh)
+      .subscribe();
+    return () => {
+      active = false;
+      void client.removeChannel(channel);
+    };
+  }, [supabase, userId]);
+
+  useEffect(() => {
+    if (ready && !supabase) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dashboard));
+  }, [dashboard, ready, supabase]);
+
+  async function reloadRemote() {
+    if (!supabase || !userId) return;
+    const next = await loadSupabaseDashboard(supabase, userId, false);
+    setDashboard(next);
+  }
 
   const earnedByTask = new Map<string, XPEvent>();
   for (const event of dashboard.xpEvents) {
@@ -111,44 +213,80 @@ export function WeeklyDashboard() {
   const expectedTasksLeft = expectedTasks.filter((task) => !earnedByTask.has(task.id)).length;
   const allComplete = dashboard.tasks.length > 0 && expectedTasksLeft === 0;
 
-  function toggleTask(task: Task) {
+  async function toggleTask(task: Task) {
     const complete = earnedByTask.has(task.id);
+    if (supabase && userId) {
+      const { error } = await supabase.rpc("record_task_completion", { p_task_id: task.id, p_complete: !complete });
+      if (error) {
+        setSyncError(error.message);
+        return;
+      }
+      await reloadRemote();
+    } else {
+      setDashboard((current) => ({
+        ...current,
+        xpEvents: [...current.xpEvents, {
+          id: crypto.randomUUID(),
+          taskId: task.id,
+          amount: complete ? -task.xp : task.xp,
+          earnedAt: new Date().toISOString(),
+          reason: complete ? "task_unchecked" : "task_completed",
+        }],
+      }));
+    }
     if (!complete && !dashboard.sickDays.includes(task.day)) {
       const otherTasksForDay = dashboard.tasks.filter((candidate) => candidate.day === task.day && candidate.id !== task.id);
       if (otherTasksForDay.every((candidate) => earnedByTask.has(candidate.id))) setCelebrationDay(task.day);
     }
-    setDashboard((current) => ({
-      ...current,
-      xpEvents: [...current.xpEvents, {
-        id: crypto.randomUUID(),
-        taskId: task.id,
-        amount: complete ? -task.xp : task.xp,
-        earnedAt: new Date().toISOString(),
-        reason: complete ? "task_unchecked" : "task_completed",
-      }],
-    }));
   }
 
-  function addTask(event: React.FormEvent<HTMLFormElement>) {
+  async function addTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = taskName.trim();
     if (!name) return;
-    setDashboard((current) => ({
-      ...current,
-      tasks: [...current.tasks, { id: crypto.randomUUID(), name, category: taskCategory, day: taskDay, xp: taskXP }],
-    }));
+    if (supabase && userId) {
+      const { error } = await supabase.from("tasks").insert({ user_id: userId, name, category: taskCategory, day: taskDay, xp: taskXP });
+      if (error) {
+        setSyncError(error.message);
+        return;
+      }
+      await reloadRemote();
+    } else {
+      setDashboard((current) => ({
+        ...current,
+        tasks: [...current.tasks, { id: crypto.randomUUID(), name, category: taskCategory, day: taskDay, xp: taskXP }],
+      }));
+    }
     setTaskName("");
   }
 
-  function removeTask(taskId: string) {
+  async function removeTask(taskId: string) {
     if (earnedByTask.has(taskId)) return;
-    setDashboard((current) => ({
-      ...current,
-      tasks: current.tasks.filter((task) => task.id !== taskId),
-    }));
+    if (supabase && userId) {
+      const { error } = await supabase.from("tasks").delete().eq("id", taskId).eq("user_id", userId);
+      if (error) {
+        setSyncError(error.message);
+        return;
+      }
+      await reloadRemote();
+    } else {
+      setDashboard((current) => ({
+        ...current,
+        tasks: current.tasks.filter((task) => task.id !== taskId),
+      }));
+    }
   }
 
-  function resetWeek() {
+  async function resetWeek() {
+    if (supabase && userId) {
+      const { error } = await supabase.rpc("reset_task_completions");
+      if (error) {
+        setSyncError(error.message);
+        return;
+      }
+      await reloadRemote();
+      return;
+    }
     const resetAt = new Date().toISOString();
     setDashboard((current) => ({
       ...current,
@@ -161,13 +299,40 @@ export function WeeklyDashboard() {
     }));
   }
 
-  function toggleSickDay(day: Day) {
-    setDashboard((current) => ({
-      ...current,
-      sickDays: current.sickDays.includes(day)
-        ? current.sickDays.filter((sickDay) => sickDay !== day)
-        : [...current.sickDays, day],
-    }));
+  async function toggleSickDay(day: Day) {
+    const sickDays = dashboard.sickDays.includes(day)
+      ? dashboard.sickDays.filter((sickDay) => sickDay !== day)
+      : [...dashboard.sickDays, day];
+    if (supabase && userId) {
+      const { error } = await supabase.from("dashboard_settings").update({ sick_days: sickDays, updated_at: new Date().toISOString() }).eq("user_id", userId);
+      if (error) {
+        setSyncError(error.message);
+        return;
+      }
+      await reloadRemote();
+    } else {
+      setDashboard((current) => ({ ...current, sickDays }));
+    }
+  }
+
+  async function saveLearnerName() {
+    if (!supabase || !userId || !dashboard.learnerName.trim()) return;
+    const { error } = await supabase.from("dashboard_settings").update({ learner_name: dashboard.learnerName.trim(), updated_at: new Date().toISOString() }).eq("user_id", userId);
+    if (error) setSyncError(error.message);
+  }
+
+  async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setAuthMessage("");
+    const result = authMode === "signup"
+      ? await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword })
+      : await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+    if (result.error) {
+      setAuthMessage(result.error.message);
+      return;
+    }
+    if (authMode === "signup" && !result.data.session) setAuthMessage("Check your email, confirm the account, then return here to sign in.");
   }
 
   function requestParentView() {
@@ -188,6 +353,18 @@ export function WeeklyDashboard() {
     setParentAnswer("");
   }
 
+  if (supabase && !authChecked) {
+    return <main className="auth-page"><div className="auth-card text-center"><p className="label">XP Dashboard</p><h1 className="mt-2 text-3xl font-black">Connecting your family...</h1></div></main>;
+  }
+
+  if (supabase && !userId) {
+    return <main className="auth-page"><form className="auth-card" onSubmit={submitAuth}><div className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--ink)] text-xl font-black text-white">XP</div><p className="label mt-6">Shared family account</p><h1 className="mt-2 text-3xl font-black">{authMode === "signin" ? "Sign in to your week" : "Create your family login"}</h1><p className="mt-3 text-sm font-semibold text-[var(--muted)]">Use the same login once on your computer and your learner&apos;s computer.</p><label className="field-label mt-6">Email<input className="field" type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label><label className="field-label mt-4">Password<input className="field" type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={8} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required /></label>{authMessage ? <p className="mt-4 rounded-xl bg-[var(--paper)] p-3 text-sm font-bold" role="status">{authMessage}</p> : null}<button className="primary-button mt-5 w-full" type="submit">{authMode === "signin" ? "Sign in" : "Create account"}</button><button className="mt-4 w-full text-sm font-black text-[var(--purple)]" type="button" onClick={() => { setAuthMode(authMode === "signin" ? "signup" : "signin"); setAuthMessage(""); }}>{authMode === "signin" ? "First time? Create the family account" : "Already have an account? Sign in"}</button></form></main>;
+  }
+
+  if (supabase && !ready) {
+    return <main className="auth-page"><div className="auth-card text-center"><p className="label">XP Dashboard</p><h1 className="mt-2 text-3xl font-black">Loading your week...</h1>{syncError ? <p className="mt-4 font-bold text-[var(--danger)]">{syncError}</p> : null}</div></main>;
+  }
+
   return (
     <main className="min-h-screen px-4 py-5 sm:px-7 lg:px-10">
       <div className="mx-auto max-w-[1400px]">
@@ -196,11 +373,10 @@ export function WeeklyDashboard() {
             <div className="grid h-12 w-12 place-items-center rounded-xl bg-[var(--ink)] text-xl font-black text-white">XP</div>
             <div><p className="text-xs font-black uppercase tracking-[.22em] text-[var(--muted)]">Weekly effort</p><h1 className="text-2xl font-black tracking-tight">XP Dashboard</h1></div>
           </div>
-          <div className="flex rounded-xl border border-[var(--line)] bg-white p-1">
-            <button className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`} onClick={() => setView("learner")}>Learner</button>
-            <button className={`mode-button ${view === "parent" ? "mode-button-active" : ""}`} onClick={requestParentView}>Parent</button>
-          </div>
+          <div className="flex items-center gap-3"><div className="flex rounded-xl border border-[var(--line)] bg-white p-1"><button className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`} onClick={() => setView("learner")}>Learner</button><button className={`mode-button ${view === "parent" ? "mode-button-active" : ""}`} onClick={requestParentView}>Parent</button></div>{supabase ? <button className="text-sm font-black text-[var(--muted)]" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button> : null}</div>
         </header>
+
+        {syncError ? <p className="mt-4 rounded-xl bg-[#fff0ec] p-3 text-sm font-bold text-[var(--danger)]" role="alert">Sync problem: {syncError}</p> : null}
 
         <section className="overview-panel mt-5">
           <div className="reminder-panel">
@@ -257,7 +433,7 @@ export function WeeklyDashboard() {
 
             <div className="paper-panel">
               <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="label">Parent controls</p><h2 className="mt-1 text-3xl font-black">Weekly plan</h2></div><button className="text-button" type="button" onClick={resetWeek}>Reset completions</button></div>
-              <div className="mt-6 grid items-end gap-3 sm:grid-cols-[1fr_auto]"><label className="field-label">Learner name<input className="field" value={dashboard.learnerName} onChange={(event) => setDashboard((current) => ({ ...current, learnerName: event.target.value }))} /></label><div className="rounded-xl bg-[var(--paper)] px-4 py-3"><p className="text-xs font-black uppercase tracking-[.12em] text-[var(--muted)]">Goals update automatically</p><p className="mt-1 font-black">Today: {todayPlannedXP} XP · Week: {plannedXP} XP</p></div></div>
+              <div className="mt-6 grid items-end gap-3 sm:grid-cols-[1fr_auto]"><label className="field-label">Learner name<input className="field" value={dashboard.learnerName} onChange={(event) => setDashboard((current) => ({ ...current, learnerName: event.target.value }))} onBlur={() => void saveLearnerName()} /></label><div className="rounded-xl bg-[var(--paper)] px-4 py-3"><p className="text-xs font-black uppercase tracking-[.12em] text-[var(--muted)]">Goals update automatically</p><p className="mt-1 font-black">Today: {todayPlannedXP} XP · Week: {plannedXP} XP</p></div></div>
               <div className="mt-6 overflow-hidden rounded-xl border border-[var(--line)] bg-white">
                 {DAYS.flatMap((day) => dashboard.tasks.filter((task) => task.day === day)).map((task) => { const complete = earnedByTask.has(task.id); return <div key={task.id} className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-[var(--line)] p-4 first:border-t-0"><div><strong>{task.name}</strong><p className="mt-1 text-sm font-bold text-[var(--muted)]">{task.day} · {task.category} · {task.xp} XP</p></div><button className="remove-button" type="button" onClick={() => removeTask(task.id)} aria-label={complete ? `${task.name} has earned XP` : `Remove ${task.name}`} disabled={complete}>{complete ? "Earned" : "Remove"}</button></div>; })}
                 {!dashboard.tasks.length ? <p className="p-8 text-center font-bold text-[var(--muted)]">Add the first task for this week.</p> : null}

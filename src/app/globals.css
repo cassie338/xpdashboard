@@ -21,6 +21,8 @@ button { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px solid var(--blue); outline-offset: 2px; }
 
 .label { font-size: .72rem; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.auth-page { display: grid; min-height: 100vh; place-items: center; padding: 1rem; }
+.auth-card { width: min(100%, 29rem); border: 1px solid var(--line); border-radius: 1.5rem; background: var(--surface); padding: clamp(1.5rem, 5vw, 2.5rem); }
 .mode-button { min-height: 2.55rem; border-radius: .75rem; padding: .55rem 1rem; font-weight: 900; cursor: pointer; }
 .mode-button-active { background: var(--ink); color: white; }
 .overview-panel { display: grid; overflow: hidden; border: 1px solid var(--line); border-radius: 1.5rem; background: var(--surface); }
