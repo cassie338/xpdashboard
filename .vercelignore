@@ -1,0 +1,5 @@
+supabase/backups/
+.env*
+.git/
+.next/
+node_modules/

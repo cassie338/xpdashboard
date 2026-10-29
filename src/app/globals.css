@@ -25,6 +25,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px s
 .auth-card { width: min(100%, 29rem); border: 1px solid var(--line); border-radius: 1.5rem; background: var(--surface); padding: clamp(1.5rem, 5vw, 2.5rem); }
 .mode-button { min-height: 2.55rem; border-radius: .75rem; padding: .55rem 1rem; font-weight: 900; cursor: pointer; }
 .mode-button-active { background: var(--ink); color: white; }
+.week-picker-label { display: grid; gap: .2rem; color: var(--muted); font-size: .65rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.week-picker { min-height: 2.55rem; max-width: 15rem; border: 1px solid var(--line); border-radius: .75rem; background: white; padding: .4rem .7rem; color: var(--ink); font-size: .78rem; font-weight: 900; letter-spacing: 0; text-transform: none; }
+.history-notice { border: 1px solid #b9a6ed; border-radius: 1rem; background: #f2edff; padding: .85rem 1rem; color: #4d398d; font-size: .86rem; }
 .overview-panel { display: grid; overflow: hidden; border: 1px solid var(--line); border-radius: 1.5rem; background: var(--surface); }
 .reminder-panel { padding: clamp(1.25rem, 3vw, 2rem); }
 .xp-summary { display: grid; gap: 1px; border-top: 1px solid var(--line); background: var(--line); }
@@ -45,6 +48,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px s
 .sick-day-button-active { color: #466f84; }
 .task-button { display: flex; width: 100%; min-height: 5rem; align-items: center; gap: .65rem; border: 1px solid var(--line); border-radius: .85rem; background: white; padding: .75rem; cursor: pointer; transition: border-color 150ms, background 150ms; }
 .task-button:hover { border-color: var(--purple); }
+.task-button:disabled { cursor: default; }
+.task-button:disabled:hover { border-color: var(--line); }
 .task-button-complete { background: #f0f8e3; }
 .task-check { display: grid; width: 1.65rem; height: 1.65rem; flex: 0 0 auto; place-items: center; border: 1.5px solid var(--ink); border-radius: .45rem; background: var(--surface); font-weight: 900; }
 .paper-panel { border: 1px solid var(--line); border-radius: 1.25rem; background: var(--surface); padding: clamp(1.25rem, 3vw, 2rem); }
@@ -56,6 +61,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px s
 .text-button { border-bottom: 2px solid var(--ink); font-weight: 900; cursor: pointer; }
 .remove-button { border: 2px solid var(--ink); border-radius: .65rem; background: #ffe1d6; padding: .5rem .65rem; font-size: .78rem; font-weight: 900; cursor: pointer; }
 .remove-button:disabled { background: #e8f7d2; cursor: not-allowed; opacity: .72; }
+.status-badge { border-radius: 999px; background: #e6e0d7; padding: .38rem .65rem; color: var(--muted); font-size: .7rem; font-weight: 900; text-transform: uppercase; }
+.status-current { background: var(--lime); color: var(--ink); }
+.rollover-task { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .7rem; min-height: 3.5rem; border: 1px solid var(--line); border-radius: .8rem; background: white; padding: .65rem .75rem; cursor: pointer; }
+.rollover-task input { width: 1.25rem; height: 1.25rem; accent-color: var(--purple); }
+.rollover-task span { display: grid; }
+.rollover-task small { margin-top: .15rem; color: var(--muted); font-weight: 750; }
+.primary-button:disabled { cursor: not-allowed; filter: grayscale(.5); opacity: .58; }
 .gate-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgb(28 26 32 / 48%); padding: 1rem; }
 .gate-dialog { width: min(100%, 25rem); border: 1px solid var(--line); border-radius: 1.25rem; background: var(--surface); padding: 1.5rem; box-shadow: 0 24px 70px rgb(28 26 32 / 24%); }
 .celebration { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; overflow: hidden; background: rgb(246 241 231 / 92%); padding: 1rem; }
