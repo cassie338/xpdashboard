@@ -5,8 +5,15 @@ export type Category = (typeof categories)[number];
 export type PlanStatus = "published" | "completed";
 export type PlanSelection = string | "legacy";
 
+export interface LearnerProfile {
+  id: string;
+  displayName: string;
+  isDefault: boolean;
+}
+
 export interface WeeklyPlan {
   id: string;
+  learnerId: string;
   weekStart: string;
   status: PlanStatus;
   sickDays: Day[];
@@ -16,6 +23,7 @@ export interface WeeklyPlan {
 
 export interface Task {
   id: string;
+  learnerId: string;
   weeklyPlanId: string | null;
   copiedFromTaskId: string | null;
   removedAt: string | null;
@@ -27,6 +35,7 @@ export interface Task {
 
 export interface XPEvent {
   id: string;
+  learnerId: string;
   taskId: string;
   weeklyPlanId: string | null;
   amount: number;
@@ -42,12 +51,12 @@ export interface StoredDashboard {
   legacySickDays: Day[];
 }
 
-export function tasksForSelection(tasks: Task[], selection: PlanSelection) {
-  return tasks.filter((task) => !task.removedAt && (selection === "legacy" ? task.weeklyPlanId === null : task.weeklyPlanId === selection));
+export function tasksForSelection(tasks: Task[], selection: PlanSelection, learnerId: string) {
+  return tasks.filter((task) => task.learnerId === learnerId && !task.removedAt && (selection === "legacy" ? task.weeklyPlanId === null : task.weeklyPlanId === selection));
 }
 
-export function eventsForSelection(events: XPEvent[], selection: PlanSelection) {
-  return events.filter((event) => selection === "legacy" ? event.weeklyPlanId === null : event.weeklyPlanId === selection);
+export function eventsForSelection(events: XPEvent[], selection: PlanSelection, learnerId: string) {
+  return events.filter((event) => event.learnerId === learnerId && (selection === "legacy" ? event.weeklyPlanId === null : event.weeklyPlanId === selection));
 }
 
 export function completionEvents(events: XPEvent[]) {

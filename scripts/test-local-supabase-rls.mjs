@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createClient } from "@supabase/supabase-js";
 
-const status = JSON.parse(execFileSync("npx", ["supabase", "status", "-o", "json"], { encoding: "utf8" }));
+const statusArgs = ["supabase", "status", "-o", "json"];
+if (process.env.SUPABASE_WORKDIR) statusArgs.push("--workdir", process.env.SUPABASE_WORKDIR);
+const status = JSON.parse(execFileSync("npx", statusArgs, { encoding: "utf8" }));
 const url = new URL(status.API_URL);
-if (!["127.0.0.1", "localhost"].includes(url.hostname) || url.port !== "55321") {
+const expectedPort = process.env.SUPABASE_API_PORT ?? "55321";
+if (!["127.0.0.1", "localhost"].includes(url.hostname) || url.port !== expectedPort) {
   throw new Error(`Refusing non-local Supabase target: ${url.host}`);
 }
 
@@ -69,7 +72,7 @@ const recordsA = await createFirstPlan(clientA, userA.id, "Auth user A task");
 const recordsB = await createFirstPlan(clientB, userB.id, "Auth user B task");
 
 async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecords, attackerRecords) {
-  for (const table of ["dashboard_settings", "weekly_plans", "tasks", "xp_events"]) {
+  for (const table of ["learners", "dashboard_settings", "weekly_plans", "tasks", "xp_events"]) {
     const { data, error } = await attacker.from(table).select("*").eq("user_id", ownerUser.id);
     if (error) throw error;
     if (data.length !== 0) throw new Error(`${attackerUser.email} read ${ownerUser.email} ${table}`);
@@ -128,5 +131,5 @@ await assertCannotAccess(clientA, userA, userB, recordsB, recordsA);
 await assertCannotAccess(clientB, userB, userA, recordsA, recordsB);
 
 console.log("real_auth_sessions|PASS|Two local Auth users signed in with separate access tokens.");
-console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across settings, plans, tasks, and XP events.");
+console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across learners, settings, plans, tasks, and XP events.");
 console.log("symmetric_cross_user_mutations|PASS|Settings update, task delete, completion, rollover, task copy, and XP update/delete attempts were rejected in both directions.");

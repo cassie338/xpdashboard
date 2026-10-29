@@ -57,6 +57,8 @@ try {
 
   await page.getByRole("button", { name: "Start first weekly plan" }).click();
   await page.getByText("Current", { exact: true }).waitFor();
+  const learnerSelect = page.locator("header select.week-picker").first();
+  const firstLearnerValue = await learnerSelect.inputValue();
   const firstPlanOptions = await page.getByLabel("View week").locator("option").allTextContents();
   assert(firstPlanOptions.length === 2, `Expected current plus legacy options, got ${firstPlanOptions.length}.`);
   assert(firstPlanOptions.some((option) => option.includes("Current")), "Current week option was missing.");
@@ -83,7 +85,7 @@ try {
   await removeWednesdayButton.click();
   await removeWednesdayButton.waitFor({ state: "detached" });
   await page.getByRole("button", { name: "Start next week", exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll(".week-picker option").length === 3);
+  await page.waitForFunction(() => document.querySelectorAll("header select.week-picker")[1]?.querySelectorAll("option").length === 3);
   const historyOptions = await page.getByLabel("View week").locator("option").allTextContents();
   assert(historyOptions.length === 3, `Expected current, history, and legacy options, got ${historyOptions.length}.`);
   assert(historyOptions.filter((option) => option.includes("History")).length === 1, "Expected one historical week.");
@@ -101,6 +103,32 @@ try {
   await page.getByLabel("View week").selectOption("legacy");
   await page.getByText("Legacy / Unassigned: These records are preserved exactly as they were.").waitFor();
   assert(await page.locator(".task-button:disabled").count() === 5, "Legacy task controls were not read-only.");
+
+  await enterParentView();
+  const addLearnerForm = page.locator("form").filter({ has: page.getByRole("heading", { name: "Add another learner" }) });
+  await addLearnerForm.getByLabel("Learner name").fill("Second Learner");
+  await addLearnerForm.getByRole("button", { name: "Add learner" }).click();
+  await learnerSelect.locator("option", { hasText: "Second Learner" }).waitFor({ state: "attached" });
+  const secondLearnerValue = await learnerSelect.inputValue();
+  assert(secondLearnerValue !== firstLearnerValue, "Adding a learner did not switch profiles.");
+  assert(await learnerSelect.locator("option").count() === 2, "Expected two learner profiles.");
+  await page.getByText("Current", { exact: true }).waitFor();
+  assert(await page.locator(".task-button").count() === 0, "New learner did not start with an empty week.");
+
+  const addTaskForm = page.locator("form").filter({ has: page.getByRole("heading", { name: "Add a task" }) });
+  await addTaskForm.getByLabel("Task name").fill("Second learner math");
+  await addTaskForm.getByRole("button", { name: "Add to the week" }).click();
+  await page.getByRole("button", { name: "Learner", exact: true }).click();
+  const secondLearnerTask = page.getByRole("button", { name: /Second learner math/ });
+  await secondLearnerTask.click();
+  await secondLearnerTask.getByText("Done · Tap to undo").waitFor();
+  assert(/20\s*\/\s*20 XP/.test(await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText()), "Second learner XP total was incorrect.");
+
+  await learnerSelect.selectOption(firstLearnerValue);
+  await page.getByLabel("View week").waitFor();
+  assert(await page.getByText("Second learner math", { exact: true }).count() === 0, "Second learner task leaked into the first learner.");
+  await page.getByLabel("View week").selectOption("legacy");
+  await page.getByText("Legacy / Unassigned: These records are preserved exactly as they were.").waitFor();
 
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileMetrics = await page.evaluate(() => {
@@ -141,6 +169,8 @@ try {
     removedWednesdayTask: true,
     historicalDisabledTasks: 4,
     legacyDisabledTasks: 5,
+    learnerProfiles: 2,
+    secondLearnerIsolated: true,
     mobileMetrics,
     productionSupabaseRequests: forbiddenRequests.length,
     ignoredAsset404s: httpErrors.filter((error) => error.url.endsWith("/favicon.ico")),

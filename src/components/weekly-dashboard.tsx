@@ -9,6 +9,7 @@ import {
   tasksForSelection,
   xpTotal,
   type Category,
+  type LearnerProfile,
   type PlanSelection,
   type StoredDashboard,
   type Task,
@@ -25,11 +26,11 @@ const STORAGE_KEY = "xp-dashboard-week-v2";
 const LEGACY_STORAGE_KEY = "xp-dashboard-week-v1";
 const confettiColors = ["#6741d9", "#ff9f43", "#c7f36b", "#4ca6d8", "#ff6b7a"];
 const sampleTasks: Task[] = [
-  { id: "math-practice", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Math practice", category: "Math", day: "Monday", xp: 25 },
-  { id: "read-book", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Read for 20 minutes", category: "Reading", day: "Tuesday", xp: 20 },
-  { id: "writing", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Write one great paragraph", category: "Writing", day: "Wednesday", xp: 25 },
-  { id: "laundry", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Fold and put away laundry", category: "Life Skills", day: "Thursday", xp: 15 },
-  { id: "build", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Build something creative", category: "Creative", day: "Friday", xp: 30 },
+  { id: "math-practice", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Math practice", category: "Math", day: "Monday", xp: 25 },
+  { id: "read-book", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Read for 20 minutes", category: "Reading", day: "Tuesday", xp: 20 },
+  { id: "writing", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Write one great paragraph", category: "Writing", day: "Wednesday", xp: 25 },
+  { id: "laundry", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Fold and put away laundry", category: "Life Skills", day: "Thursday", xp: 15 },
+  { id: "build", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Build something creative", category: "Creative", day: "Friday", xp: 30 },
 ];
 
 const defaultDashboard: StoredDashboard = {
@@ -44,7 +45,14 @@ function loadLocalDashboard(): StoredDashboard {
   const current = window.localStorage.getItem(STORAGE_KEY);
   if (current) {
     try {
-      return { ...defaultDashboard, ...JSON.parse(current) as StoredDashboard };
+      const parsed = JSON.parse(current) as StoredDashboard;
+      return {
+        ...defaultDashboard,
+        ...parsed,
+        plans: (parsed.plans ?? []).map((plan) => ({ ...plan, learnerId: plan.learnerId ?? "local" })),
+        tasks: (parsed.tasks ?? []).map((task) => ({ ...task, learnerId: task.learnerId ?? "local" })),
+        xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, learnerId: event.learnerId ?? "local" })),
+      };
     } catch {
       return defaultDashboard;
     }
@@ -56,27 +64,33 @@ function loadLocalDashboard(): StoredDashboard {
     const parsed = JSON.parse(legacy) as {
       learnerName?: string;
       sickDays?: Day[];
-      tasks?: Array<Omit<Task, "weeklyPlanId" | "copiedFromTaskId">>;
-      xpEvents?: Array<Omit<XPEvent, "weeklyPlanId">>;
+      tasks?: Array<Omit<Task, "learnerId" | "weeklyPlanId" | "copiedFromTaskId" | "removedAt">>;
+      xpEvents?: Array<Omit<XPEvent, "learnerId" | "weeklyPlanId">>;
     };
     return {
       learnerName: parsed.learnerName ?? defaultDashboard.learnerName,
       plans: [],
       legacySickDays: parsed.sickDays ?? [],
-      tasks: (parsed.tasks ?? sampleTasks).map((task) => ({ ...task, weeklyPlanId: null, copiedFromTaskId: null, removedAt: null })),
-      xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, weeklyPlanId: null })),
+      tasks: (parsed.tasks ?? sampleTasks).map((task) => ({ ...task, learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null })),
+      xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, learnerId: "local", weeklyPlanId: null })),
     };
   } catch {
     return defaultDashboard;
   }
 }
 
-async function loadSupabaseDashboard(client: SupabaseClient, userId: string, importLocal = true): Promise<StoredDashboard> {
+async function loadLearners(client: SupabaseClient, userId: string): Promise<LearnerProfile[]> {
+  const { data, error } = await client.from("learners").select("id, display_name, is_default").eq("user_id", userId).order("created_at");
+  if (error) throw error;
+  return (data ?? []).map((learner) => ({ id: learner.id, displayName: learner.display_name, isDefault: learner.is_default }));
+}
+
+async function loadSupabaseDashboard(client: SupabaseClient, userId: string, learnerId: string, importLocal = true): Promise<StoredDashboard> {
   const [settingsResult, plansResult, tasksResult, eventsResult] = await Promise.all([
-    client.from("dashboard_settings").select("learner_name, sick_days, initialized").eq("user_id", userId).maybeSingle(),
-    client.from("weekly_plans").select("id, week_start, status, sick_days, created_at, completed_at").eq("user_id", userId).order("week_start", { ascending: false }),
-    client.from("tasks").select("id, weekly_plan_id, copied_from_task_id, removed_at, name, category, day, xp, created_at").eq("user_id", userId).order("created_at"),
-    client.from("xp_events").select("id, weekly_plan_id, task_id, amount, reason, earned_at").eq("user_id", userId).order("earned_at"),
+    client.from("dashboard_settings").select("learner_name, sick_days, initialized").eq("user_id", userId).eq("learner_id", learnerId).maybeSingle(),
+    client.from("weekly_plans").select("id, learner_id, week_start, status, sick_days, created_at, completed_at").eq("user_id", userId).eq("learner_id", learnerId).order("week_start", { ascending: false }),
+    client.from("tasks").select("id, learner_id, weekly_plan_id, copied_from_task_id, removed_at, name, category, day, xp, created_at").eq("user_id", userId).eq("learner_id", learnerId).order("created_at"),
+    client.from("xp_events").select("id, learner_id, weekly_plan_id, task_id, amount, reason, earned_at").eq("user_id", userId).eq("learner_id", learnerId).order("earned_at"),
   ]);
   if (settingsResult.error) throw settingsResult.error;
   if (plansResult.error) throw plansResult.error;
@@ -97,12 +111,7 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, imp
       p_completed_task_ids: [...activeLocalTasks.keys()],
     });
     if (importError) throw importError;
-    return loadSupabaseDashboard(client, userId, false);
-  }
-
-  if (!settings) {
-    const { error } = await client.from("dashboard_settings").insert({ user_id: userId });
-    if (error) throw error;
+    return loadSupabaseDashboard(client, userId, learnerId, false);
   }
 
   return {
@@ -110,6 +119,7 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, imp
     legacySickDays: (settings?.sick_days ?? []) as Day[],
     plans: (plansResult.data ?? []).map((plan) => ({
       id: plan.id,
+      learnerId: plan.learner_id,
       weekStart: plan.week_start,
       status: plan.status,
       sickDays: plan.sick_days as Day[],
@@ -118,6 +128,7 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, imp
     })),
     tasks: (tasksResult.data ?? []).map((task) => ({
       id: task.id,
+      learnerId: task.learner_id,
       weeklyPlanId: task.weekly_plan_id,
       copiedFromTaskId: task.copied_from_task_id,
       removedAt: task.removed_at,
@@ -128,6 +139,7 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, imp
     })),
     xpEvents: (eventsResult.data ?? []).map((event) => ({
       id: event.id,
+      learnerId: event.learner_id,
       weeklyPlanId: event.weekly_plan_id,
       taskId: event.task_id,
       amount: event.amount,
@@ -163,6 +175,8 @@ export function WeeklyDashboard() {
   const [ready, setReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(!supabase);
   const [userId, setUserId] = useState<string | null>(null);
+  const [learners, setLearners] = useState<LearnerProfile[]>([]);
+  const [selectedLearnerId, setSelectedLearnerId] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -173,6 +187,8 @@ export function WeeklyDashboard() {
   const [taskXP, setTaskXP] = useState(20);
   const [taskDay, setTaskDay] = useState<Day>("Monday");
   const [taskCategory, setTaskCategory] = useState<Category>("Math");
+  const [newLearnerName, setNewLearnerName] = useState("");
+  const [addingLearner, setAddingLearner] = useState(false);
 
   useEffect(() => {
     if (supabase) {
@@ -184,6 +200,11 @@ export function WeeklyDashboard() {
       const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
         window.requestAnimationFrame(() => {
           setUserId(session?.user.id ?? null);
+          setReady(false);
+          if (!session) {
+            setLearners([]);
+            setSelectedLearnerId(null);
+          }
           setAuthChecked(true);
         });
       });
@@ -191,6 +212,8 @@ export function WeeklyDashboard() {
     }
     const frame = window.requestAnimationFrame(() => {
       const local = loadLocalDashboard();
+      setLearners([{ id: "local", displayName: local.learnerName, isDefault: true }]);
+      setSelectedLearnerId("local");
       setDashboard(local);
       setSelectedPlan(local.plans[0]?.id ?? "legacy");
       setReady(true);
@@ -202,9 +225,35 @@ export function WeeklyDashboard() {
     if (!supabase || !userId) return;
     let active = true;
     const client = supabase;
+    const refreshLearners = async () => {
+      try {
+        const next = await loadLearners(client, userId);
+        if (!active) return;
+        setLearners(next);
+        setSelectedLearnerId((current) => next.some((learner) => learner.id === current)
+          ? current
+          : next.find((learner) => learner.isDefault)?.id ?? next[0]?.id ?? null);
+      } catch (error) {
+        if (active) setSyncError(error instanceof Error ? error.message : "Unable to load learners.");
+      }
+    };
+    void refreshLearners();
+    const channel = client.channel(`learners-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "learners", filter: `user_id=eq.${userId}` }, refreshLearners)
+      .subscribe();
+    return () => {
+      active = false;
+      void client.removeChannel(channel);
+    };
+  }, [supabase, userId]);
+
+  useEffect(() => {
+    if (!supabase || !userId || !selectedLearnerId) return;
+    let active = true;
+    const client = supabase;
     const refresh = async () => {
       try {
-        const next = await loadSupabaseDashboard(client, userId);
+        const next = await loadSupabaseDashboard(client, userId, selectedLearnerId);
         if (active) {
           setDashboard(next);
           setSelectedPlan((current) => current === "legacy" && next.plans.length === 0
@@ -218,25 +267,25 @@ export function WeeklyDashboard() {
       }
     };
     void refresh();
-    const channel = client.channel(`dashboard-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "dashboard_settings", filter: `user_id=eq.${userId}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "weekly_plans", filter: `user_id=eq.${userId}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `user_id=eq.${userId}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "xp_events", filter: `user_id=eq.${userId}` }, refresh)
+    const channel = client.channel(`dashboard-${userId}-${selectedLearnerId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dashboard_settings", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "weekly_plans", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "xp_events", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .subscribe();
     return () => {
       active = false;
       void client.removeChannel(channel);
     };
-  }, [supabase, userId]);
+  }, [supabase, userId, selectedLearnerId]);
 
   useEffect(() => {
     if (ready && !supabase) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dashboard));
   }, [dashboard, ready, supabase]);
 
   async function reloadRemote(preferredPlan?: PlanSelection) {
-    if (!supabase || !userId) return;
-    const next = await loadSupabaseDashboard(supabase, userId, false);
+    if (!supabase || !userId || !selectedLearnerId) return;
+    const next = await loadSupabaseDashboard(supabase, userId, selectedLearnerId, false);
     setDashboard(next);
     if (preferredPlan) setSelectedPlan(preferredPlan);
     setSyncError("");
@@ -244,8 +293,8 @@ export function WeeklyDashboard() {
 
   const plan = selectedPlan === "legacy" ? null : dashboard.plans.find((candidate) => candidate.id === selectedPlan) ?? null;
   const isFirstPlanSetup = selectedPlan === "legacy" && dashboard.plans.length === 0;
-  const selectedTasks = tasksForSelection(dashboard.tasks, selectedPlan);
-  const selectedEvents = eventsForSelection(dashboard.xpEvents, selectedPlan);
+  const selectedTasks = tasksForSelection(dashboard.tasks, selectedPlan, selectedLearnerId ?? "local");
+  const selectedEvents = eventsForSelection(dashboard.xpEvents, selectedPlan, selectedLearnerId ?? "local");
   const earnedByTask = completionEvents(selectedEvents);
   const sickDays = plan?.sickDays ?? dashboard.legacySickDays;
   const editable = plan?.status === "published";
@@ -268,6 +317,14 @@ export function WeeklyDashboard() {
   const showDailyProgress = plan?.status === "published" && plan.weekStart === currentWeekStart();
   const rolloverTasks = selectedTasks.filter((task) => !excludedRolloverTasks.has(task.id));
   const nextWeekStart = plan ? addDays(plan.weekStart, 7) : currentWeekStart();
+
+  function changeLearner(learnerId: string) {
+    setReady(false);
+    setSelectedPlan("legacy");
+    setExcludedRolloverTasks(new Set());
+    setCelebrationDay(null);
+    setSelectedLearnerId(learnerId);
+  }
 
   function changeSelection(selection: PlanSelection) {
     setSelectedPlan(selection);
@@ -298,6 +355,7 @@ export function WeeklyDashboard() {
           ...current,
           xpEvents: [...current.xpEvents, {
           id: crypto.randomUUID(),
+          learnerId: task.learnerId,
           taskId: task.id,
           weeklyPlanId: task.weeklyPlanId,
           amount: currentlyComplete ? -taskBalance : task.xp,
@@ -330,7 +388,7 @@ export function WeeklyDashboard() {
     } else {
       setDashboard((current) => ({
         ...current,
-        tasks: [...current.tasks, { id: crypto.randomUUID(), weeklyPlanId: plan.id, copiedFromTaskId: null, removedAt: null, name, category: taskCategory, day: taskDay, xp: taskXP }],
+        tasks: [...current.tasks, { id: crypto.randomUUID(), learnerId: plan.learnerId, weeklyPlanId: plan.id, copiedFromTaskId: null, removedAt: null, name, category: taskCategory, day: taskDay, xp: taskXP }],
       }));
     }
     setTaskName("");
@@ -388,7 +446,7 @@ export function WeeklyDashboard() {
         } else {
           const newPlanId = crypto.randomUUID();
           const now = new Date().toISOString();
-          const newPlan: WeeklyPlan = { id: newPlanId, weekStart: nextWeekStart, status: "published", sickDays: [...sickDays], createdAt: now, completedAt: null };
+          const newPlan: WeeklyPlan = { id: newPlanId, learnerId: plan?.learnerId ?? selectedLearnerId ?? "local", weekStart: nextWeekStart, status: "published", sickDays: [...sickDays], createdAt: now, completedAt: null };
           const copiedTasks = rolloverTasks.map((task) => ({ ...task, id: crypto.randomUUID(), weeklyPlanId: newPlanId, copiedFromTaskId: task.id, removedAt: null }));
           setDashboard((current) => ({
             ...current,
@@ -407,10 +465,35 @@ export function WeeklyDashboard() {
   }
 
   async function saveLearnerName() {
-    if (!supabase || !userId || !dashboard.learnerName.trim()) return;
-    const { error } = await supabase.from("dashboard_settings").update({ learner_name: dashboard.learnerName.trim(), updated_at: new Date().toISOString() }).eq("user_id", userId);
-    if (error) setSyncError(error.message);
-    else setSyncError("");
+    if (!dashboard.learnerName.trim() || !selectedLearnerId) return;
+    if (supabase && userId) {
+      const { error } = await supabase.rpc("set_learner_name", { p_learner_id: selectedLearnerId, p_display_name: dashboard.learnerName.trim() });
+      if (error) return setSyncError(error.message);
+      setLearners(await loadLearners(supabase, userId));
+      setSyncError("");
+    } else {
+      setLearners((current) => current.map((learner) => learner.id === selectedLearnerId ? { ...learner, displayName: dashboard.learnerName.trim() } : learner));
+    }
+  }
+
+  async function addLearner(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const displayName = newLearnerName.trim();
+    if (!supabase || !userId || !displayName) return;
+    setAddingLearner(true);
+    setSyncError("");
+    try {
+      const { data, error } = await supabase.rpc("create_family_learner", { p_display_name: displayName, p_week_start: currentWeekStart() });
+      if (error) throw error;
+      const nextLearners = await loadLearners(supabase, userId);
+      setLearners(nextLearners);
+      changeLearner(data as string);
+      setNewLearnerName("");
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Unable to add learner.");
+    } finally {
+      setAddingLearner(false);
+    }
   }
 
   async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
@@ -448,7 +531,7 @@ export function WeeklyDashboard() {
       <div className="mx-auto max-w-[1400px]">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-xl bg-[var(--ink)] text-xl font-black text-white">XP</div><div><p className="text-xs font-black uppercase tracking-[.22em] text-[var(--muted)]">Weekly effort</p><h1 className="text-2xl font-black tracking-tight">XP Dashboard</h1></div></div>
-          <div className="flex flex-wrap items-center gap-3"><label className="week-picker-label">View week<select className="week-picker" value={selectedPlan} onChange={(event) => changeSelection(event.target.value)}>{dashboard.plans.map((candidate) => <option key={candidate.id} value={candidate.id}>{weekLabel(candidate.weekStart)}{candidate.status === "completed" ? " · History" : " · Current"}</option>)}<option value="legacy">{isFirstPlanSetup ? `${weekLabel()} · Setup` : "Legacy / Unassigned"}</option></select></label><div className="flex rounded-xl border border-[var(--line)] bg-white p-1"><button className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`} onClick={() => setView("learner")}>Learner</button><button className={`mode-button ${view === "parent" ? "mode-button-active" : ""}`} onClick={requestParentView}>Parent</button></div>{supabase ? <button className="text-sm font-black text-[var(--muted)]" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button> : null}</div>
+          <div className="flex flex-wrap items-center gap-3"><label className="week-picker-label">Learner<select className="week-picker" value={selectedLearnerId ?? ""} onChange={(event) => changeLearner(event.target.value)}>{learners.map((learner) => <option key={learner.id} value={learner.id}>{learner.displayName}</option>)}</select></label><label className="week-picker-label">View week<select className="week-picker" value={selectedPlan} onChange={(event) => changeSelection(event.target.value)}>{dashboard.plans.map((candidate) => <option key={candidate.id} value={candidate.id}>{weekLabel(candidate.weekStart)}{candidate.status === "completed" ? " · History" : " · Current"}</option>)}<option value="legacy">{isFirstPlanSetup ? `${weekLabel()} · Setup` : "Legacy / Unassigned"}</option></select></label><div className="flex rounded-xl border border-[var(--line)] bg-white p-1"><button className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`} onClick={() => setView("learner")}>Learner</button><button className={`mode-button ${view === "parent" ? "mode-button-active" : ""}`} onClick={requestParentView}>Parent</button></div>{supabase ? <button className="text-sm font-black text-[var(--muted)]" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button> : null}</div>
         </header>
 
         {syncError ? <p className="mt-4 rounded-xl bg-[#fff0ec] p-3 text-sm font-bold text-[var(--danger)]" role="alert">Sync problem: {syncError}</p> : null}
@@ -477,6 +560,7 @@ export function WeeklyDashboard() {
         ) : (
           <section className="mt-7 grid gap-6 lg:grid-cols-[.72fr_1.28fr]">
             <div className="grid h-fit gap-6">
+              {supabase ? <form className="paper-panel" onSubmit={addLearner}><p className="label">Family learners</p><h2 className="mt-1 text-2xl font-black">Add another learner</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Each learner gets a separate weekly plan, task history, and XP total under this family login.</p><label className="field-label mt-5">Learner name<input className="field" value={newLearnerName} onChange={(event) => setNewLearnerName(event.target.value)} placeholder="Learner name" maxLength={80} required /></label><button className="secondary-button mt-4 w-full" type="submit" disabled={addingLearner}>{addingLearner ? "Adding learner..." : "Add learner"}</button></form> : null}
               <form className="paper-panel" onSubmit={addTask}><p className="label">Plan the week</p><h2 className="mt-1 text-3xl font-black">Add a task</h2>{editable ? <><label className="field-label mt-6">Task name<input className="field" value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="Read for 20 minutes" maxLength={80} required /></label><div className="mt-4 grid grid-cols-2 gap-3"><label className="field-label">Planned day<select className="field" value={taskDay} onChange={(event) => setTaskDay(event.target.value as Day)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><label className="field-label">XP<input className="field" type="number" min="1" max="500" value={taskXP} onChange={(event) => setTaskXP(Number(event.target.value))} required /></label></div><label className="field-label mt-4">Category<select className="field" value={taskCategory} onChange={(event) => setTaskCategory(event.target.value as Category)}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><button className="primary-button mt-5 w-full" type="submit">Add to the week</button></> : <p className="mt-5 font-bold text-[var(--muted)]">Select the current published week to add tasks.</p>}</form>
               {canStartNextWeek ? <div className="paper-panel"><p className="label">{plan ? "Rollover" : "First dated plan"}</p><h2 className="mt-1 text-2xl font-black">{plan ? "Start next week" : "Start this week"}</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Copy selected tasks into {weekLabel(nextWeekStart)}. New task IDs and a fresh completion state will be created.</p>{plan ? <div className="mt-4 grid gap-2">{selectedTasks.map((task) => <label key={task.id} className="rollover-task"><input type="checkbox" checked={!excludedRolloverTasks.has(task.id)} onChange={() => toggleRolloverTask(task.id)} /><span><strong>{task.name}</strong><small>{task.day} · {task.xp} XP</small></span></label>)}</div> : <p className="mt-4 rounded-xl bg-[var(--paper)] p-3 text-sm font-bold text-[var(--muted)]">Use the Include controls in the weekly plan, then start the week. After it starts, you can add or remove its task copies.</p>}<button className="primary-button mt-5 w-full" type="button" disabled={rollingOver || rolloverTasks.length === 0} onClick={() => void startNextWeek()}>{rollingOver ? "Starting week..." : plan ? "Start next week" : "Start first weekly plan"}</button></div> : null}
             </div>
