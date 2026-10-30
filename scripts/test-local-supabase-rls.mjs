@@ -60,6 +60,11 @@ async function createFirstPlan(client, userId, name) {
     .single();
   if (copiedError) throw copiedError;
 
+  const { error: startError } = await client.rpc("start_task", { p_task_id: copiedTask.id });
+  if (startError) throw startError;
+  const { error: helpError } = await client.rpc("request_task_help", { p_task_id: copiedTask.id });
+  if (helpError) throw helpError;
+
   const { error: completionError } = await client.rpc("record_task_completion", {
     p_task_id: copiedTask.id,
     p_complete: true,
@@ -72,7 +77,7 @@ const recordsA = await createFirstPlan(clientA, userA.id, "Auth user A task");
 const recordsB = await createFirstPlan(clientB, userB.id, "Auth user B task");
 
 async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecords, attackerRecords) {
-  for (const table of ["learners", "dashboard_settings", "weekly_plans", "tasks", "xp_events"]) {
+  for (const table of ["learners", "dashboard_settings", "weekly_plans", "tasks", "xp_events", "task_sessions", "help_requests"]) {
     const { data, error } = await attacker.from(table).select("*").eq("user_id", ownerUser.id);
     if (error) throw error;
     if (data.length !== 0) throw new Error(`${attackerUser.email} read ${ownerUser.email} ${table}`);
@@ -97,6 +102,24 @@ async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecord
     p_complete: false,
   });
   if (!completionError) throw new Error("Cross-user completion RPC unexpectedly succeeded.");
+
+  for (const rpc of ["start_task", "request_task_help"]) {
+    const { error } = await attacker.rpc(rpc, { p_task_id: ownerRecords.copiedTaskId });
+    if (!error) throw new Error(`Cross-user ${rpc} RPC unexpectedly succeeded.`);
+  }
+
+  const { error: supportError } = await attacker.rpc("set_task_support_mode", {
+    p_task_id: ownerRecords.copiedTaskId,
+    p_support_mode: "with_parent",
+  });
+  if (!supportError) throw new Error("Cross-user support-mode RPC unexpectedly succeeded.");
+
+  const { error: rewardError } = await attacker.rpc("set_daily_reward", {
+    p_weekly_plan_id: ownerRecords.planId,
+    p_day: "Monday",
+    p_reward: "Forbidden reward",
+  });
+  if (!rewardError) throw new Error("Cross-user daily-reward RPC unexpectedly succeeded.");
 
   const { error: rolloverError } = await attacker.rpc("start_next_week", {
     p_source_plan_id: ownerRecords.planId,
@@ -131,5 +154,5 @@ await assertCannotAccess(clientA, userA, userB, recordsB, recordsA);
 await assertCannotAccess(clientB, userB, userA, recordsA, recordsB);
 
 console.log("real_auth_sessions|PASS|Two local Auth users signed in with separate access tokens.");
-console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across learners, settings, plans, tasks, and XP events.");
-console.log("symmetric_cross_user_mutations|PASS|Settings update, task delete, completion, rollover, task copy, and XP update/delete attempts were rejected in both directions.");
+console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across all dashboard, session, help, and XP records.");
+console.log("symmetric_cross_user_mutations|PASS|Settings, task, session, help, support, reward, rollover, task copy, and XP mutation attempts were rejected in both directions.");

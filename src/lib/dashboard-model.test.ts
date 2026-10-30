@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { completionEvents, eventsForSelection, tasksForSelection, xpTotal, type Task, type XPEvent } from "./dashboard-model";
 
 const tasks: Task[] = [
-  { id: "legacy", learnerId: "learner-one", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Legacy", category: "Math", day: "Monday", xp: 20 },
-  { id: "week-one", learnerId: "learner-one", weeklyPlanId: "plan-one", copiedFromTaskId: "legacy", removedAt: null, name: "Week one", category: "Math", day: "Monday", xp: 20 },
-  { id: "week-two", learnerId: "learner-one", weeklyPlanId: "plan-two", copiedFromTaskId: "week-one", removedAt: null, name: "Week two", category: "Math", day: "Monday", xp: 20 },
-  { id: "removed", learnerId: "learner-one", weeklyPlanId: "plan-two", copiedFromTaskId: null, removedAt: "2026-10-14T12:00:00Z", name: "Removed", category: "Reading", day: "Wednesday", xp: 15 },
-  { id: "sibling-task", learnerId: "learner-two", weeklyPlanId: "plan-two", copiedFromTaskId: null, removedAt: null, name: "Sibling", category: "Math", day: "Monday", xp: 100 },
+  { id: "legacy", learnerId: "learner-one", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Legacy", category: "Math", day: "Monday", xp: 20, position: 0, supportMode: "independent" },
+  { id: "week-one", learnerId: "learner-one", weeklyPlanId: "plan-one", copiedFromTaskId: "legacy", removedAt: null, name: "Week one", category: "Math", day: "Monday", xp: 20, position: 0, supportMode: "independent" },
+  { id: "week-two", learnerId: "learner-one", weeklyPlanId: "plan-two", copiedFromTaskId: "week-one", removedAt: null, name: "Week two", category: "Math", day: "Monday", xp: 20, position: 0, supportMode: "independent" },
+  { id: "removed", learnerId: "learner-one", weeklyPlanId: "plan-two", copiedFromTaskId: null, removedAt: "2026-10-14T12:00:00Z", name: "Removed", category: "Reading", day: "Wednesday", xp: 15, position: 1, supportMode: "independent" },
+  { id: "sibling-task", learnerId: "learner-two", weeklyPlanId: "plan-two", copiedFromTaskId: null, removedAt: null, name: "Sibling", category: "Math", day: "Monday", xp: 100, position: 0, supportMode: "independent" },
 ];
 
 const events: XPEvent[] = [

@@ -51,7 +51,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px s
 .task-button:disabled { cursor: default; }
 .task-button:disabled:hover { border-color: var(--line); }
 .task-button-complete { background: #f0f8e3; }
+.task-button-focused { border-color: var(--purple); box-shadow: inset 0 0 0 1px var(--purple); }
 .task-check { display: grid; width: 1.65rem; height: 1.65rem; flex: 0 0 auto; place-items: center; border: 1.5px solid var(--ink); border-radius: .45rem; background: var(--surface); font-weight: 900; }
+.focus-card { display: grid; overflow: hidden; border: 2px solid var(--ink); border-radius: 1.5rem; background: var(--lime); box-shadow: 6px 6px 0 var(--ink); }
+.focus-card-main { padding: clamp(1.4rem, 4vw, 2.5rem); }
+.focus-card-complete { padding: clamp(1.4rem, 4vw, 2.5rem); }
+.focus-day, .support-badge { border-radius: 999px; padding: .45rem .7rem; font-size: .75rem; font-weight: 900; text-transform: uppercase; }
+.focus-day { background: var(--ink); color: white; }
+.support-badge { border: 1px solid rgb(28 26 32 / 25%); background: rgb(255 255 255 / 55%); }
+.focus-action { min-width: 10rem; padding-inline: 1.1rem; }
+.focus-progress { border-top: 2px solid var(--ink); background: #efe9ff; padding: clamp(1.2rem, 3vw, 2rem); }
+.focus-progress .tracker { background: transparent; padding: 0; }
+.reward-note { display: grid; grid-template-columns: auto 1fr; gap: .65rem; margin-top: 1.3rem; border: 1px solid #a68ce8; border-radius: .9rem; background: white; padding: .8rem; }
+.reward-note span { color: var(--purple); font-size: 1.3rem; }
+.reward-note p { display: grid; gap: .15rem; color: var(--muted); font-size: .82rem; font-weight: 750; }
+.reward-note strong { color: var(--ink); }
 .paper-panel { border: 1px solid var(--line); border-radius: 1.25rem; background: var(--surface); padding: clamp(1.25rem, 3vw, 2rem); }
 .field-label { display: grid; gap: .45rem; font-size: .82rem; font-weight: 900; color: var(--muted); }
 .field { width: 100%; min-height: 3.25rem; border: 2px solid var(--ink); border-radius: .8rem; background: white; padding: .7rem .85rem; color: var(--ink); font-weight: 750; }
@@ -67,6 +81,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px s
 .rollover-task input { width: 1.25rem; height: 1.25rem; accent-color: var(--purple); }
 .rollover-task span { display: grid; }
 .rollover-task small { margin-top: .15rem; color: var(--muted); font-weight: 750; }
+.parent-day-plan { border-top: 2px solid var(--ink); padding-top: 1rem; }
+.parent-order-row { display: flex; min-height: 4rem; align-items: center; gap: .55rem; border: 1px solid var(--line); border-radius: .8rem; background: white; padding: .6rem; }
+.drag-handle { color: var(--muted); font-weight: 900; letter-spacing: -.3em; cursor: grab; }
+.support-select { max-width: 100%; margin-top: .25rem; border: 0; background: transparent; color: var(--purple); font-size: .75rem; font-weight: 900; }
+.order-button { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border: 1px solid var(--line); border-radius: .55rem; background: var(--paper); font-weight: 900; cursor: pointer; }
+.order-button:disabled { cursor: default; opacity: .3; }
+.help-request-row { display: grid; gap: .7rem; border: 1px solid var(--line); border-radius: .9rem; background: white; padding: .85rem; }
+.help-request-row p { margin-top: .2rem; color: var(--muted); font-size: .75rem; font-weight: 750; }
 .primary-button:disabled { cursor: not-allowed; filter: grayscale(.5); opacity: .58; }
 .gate-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgb(28 26 32 / 48%); padding: 1rem; }
 .gate-dialog { width: min(100%, 25rem); border: 1px solid var(--line); border-radius: 1.25rem; background: var(--surface); padding: 1.5rem; box-shadow: 0 24px 70px rgb(28 26 32 / 24%); }
@@ -92,6 +114,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px s
 @media (min-width: 900px) {
   .overview-panel { grid-template-columns: minmax(0, 1.2fr) minmax(21rem, .8fr); }
   .xp-summary { border-top: 0; border-left: 1px solid var(--line); }
+  .focus-card { grid-template-columns: minmax(0, 1.5fr) minmax(17rem, .5fr); }
+  .focus-progress { border-top: 0; border-left: 2px solid var(--ink); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -4,6 +4,7 @@ export const categories = ["Math", "Reading", "Writing", "History", "Life Skills
 export type Category = (typeof categories)[number];
 export type PlanStatus = "published" | "completed";
 export type PlanSelection = string | "legacy";
+export type SupportMode = "independent" | "with_parent";
 
 export interface LearnerProfile {
   id: string;
@@ -17,6 +18,7 @@ export interface WeeklyPlan {
   weekStart: string;
   status: PlanStatus;
   sickDays: Day[];
+  dailyRewards: Partial<Record<Day, string>>;
   createdAt: string;
   completedAt: string | null;
 }
@@ -31,6 +33,8 @@ export interface Task {
   category: Category;
   day: Day;
   xp: number;
+  position: number;
+  supportMode: SupportMode;
 }
 
 export interface XPEvent {
@@ -48,7 +52,25 @@ export interface StoredDashboard {
   plans: WeeklyPlan[];
   tasks: Task[];
   xpEvents: XPEvent[];
+  taskSessions: TaskSession[];
+  helpRequests: HelpRequest[];
   legacySickDays: Day[];
+}
+
+export interface TaskSession {
+  id: string;
+  taskId: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: "started" | "completed";
+}
+
+export interface HelpRequest {
+  id: string;
+  taskId: string;
+  status: "requested" | "resolved";
+  requestedAt: string;
+  resolvedAt: string | null;
 }
 
 export function tasksForSelection(tasks: Task[], selection: PlanSelection, learnerId: string) {

@@ -64,10 +64,23 @@ try {
   assert(firstPlanOptions.some((option) => option.includes("Current")), "Current week option was missing.");
   assert(firstPlanOptions.some((option) => option === "Legacy / Unassigned"), "Legacy option was missing.");
 
+  const wednesdayPlan = page.locator(".parent-day-plan").filter({ has: page.getByRole("heading", { name: "Wednesday", exact: true }) });
+  const wednesdayReward = wednesdayPlan.getByLabel("Daily reward");
+  await wednesdayReward.fill("Choose tonight's family game");
+  await wednesdayReward.press("Tab");
+  await wednesdayPlan.locator(".support-select").selectOption("with_parent");
+
   await page.getByRole("button", { name: "Learner", exact: true }).click();
   const firstTask = page.locator(".day-card").filter({ has: page.getByRole("heading", { name: "Wednesday", exact: true }) }).locator(".task-button").first();
   await firstTask.click();
-  await firstTask.getByText("Done · Tap to undo").waitFor();
+  await page.getByRole("heading", { name: "Write one great paragraph", exact: true }).waitFor();
+  await page.getByText("Do with a parent", { exact: true }).waitFor();
+  await page.getByText("Choose tonight's family game").last().waitFor();
+  await page.getByRole("button", { name: "Start with my parent" }).click();
+  await page.getByRole("button", { name: "I need help" }).click();
+  await page.getByText("Your help request is saved for your parent.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "I finished it" }).click();
+  await firstTask.getByText("Completed · Tap to undo").waitFor();
   const completedWeeklyText = await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText();
   assert(/25\s*\/\s*115 XP/.test(completedWeeklyText), `Unexpected completion total: ${completedWeeklyText}`);
 
@@ -76,11 +89,15 @@ try {
   await celebration.getByRole("button", { name: "Awesome!" }).click();
 
   await firstTask.click();
-  await page.waitForFunction((task) => task?.getAttribute("aria-pressed") === "false", await firstTask.elementHandle());
+  await firstTask.getByText("With a parent").waitFor();
   const undoneWeeklyText = await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText();
   assert(/0\s*\/\s*115 XP/.test(undoneWeeklyText), `Unexpected undo total: ${undoneWeeklyText}`);
 
   await enterParentView();
+  const helpPanel = page.locator(".paper-panel").filter({ has: page.getByRole("heading", { name: "Help requests" }) });
+  await helpPanel.getByText("Write one great paragraph", { exact: true }).waitFor();
+  await helpPanel.getByRole("button", { name: "Resolved" }).click();
+  await helpPanel.waitFor({ state: "detached" });
   const removeWednesdayButton = page.getByRole("button", { name: "Remove Write one great paragraph" });
   await removeWednesdayButton.click();
   await removeWednesdayButton.waitFor({ state: "detached" });
@@ -121,7 +138,9 @@ try {
   await page.getByRole("button", { name: "Learner", exact: true }).click();
   const secondLearnerTask = page.getByRole("button", { name: /Second learner math/ });
   await secondLearnerTask.click();
-  await secondLearnerTask.getByText("Done · Tap to undo").waitFor();
+  await page.getByRole("button", { name: "Start this task" }).click();
+  await page.getByRole("button", { name: "I finished it" }).click();
+  await secondLearnerTask.getByText("Completed · Tap to undo").waitFor();
   assert(/20\s*\/\s*20 XP/.test(await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText()), "Second learner XP total was incorrect.");
 
   await learnerSelect.selectOption(firstLearnerValue);
@@ -177,6 +196,9 @@ try {
     functionalHttpErrors: functionalHttpErrors.length,
     functionalConsoleErrors: functionalConsoleErrors.length,
   }));
+} catch (error) {
+  console.error(JSON.stringify({ consoleErrors, httpErrors, bodyText: await page.locator("body").innerText() }, null, 2));
+  throw error;
 } finally {
   await browser.close();
 }

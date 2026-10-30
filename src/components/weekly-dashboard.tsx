@@ -12,6 +12,7 @@ import {
   type LearnerProfile,
   type PlanSelection,
   type StoredDashboard,
+  type SupportMode,
   type Task,
   type WeeklyPlan,
   type XPEvent,
@@ -26,11 +27,11 @@ const STORAGE_KEY = "xp-dashboard-week-v2";
 const LEGACY_STORAGE_KEY = "xp-dashboard-week-v1";
 const confettiColors = ["#6741d9", "#ff9f43", "#c7f36b", "#4ca6d8", "#ff6b7a"];
 const sampleTasks: Task[] = [
-  { id: "math-practice", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Math practice", category: "Math", day: "Monday", xp: 25 },
-  { id: "read-book", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Read for 20 minutes", category: "Reading", day: "Tuesday", xp: 20 },
-  { id: "writing", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Write one great paragraph", category: "Writing", day: "Wednesday", xp: 25 },
-  { id: "laundry", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Fold and put away laundry", category: "Life Skills", day: "Thursday", xp: 15 },
-  { id: "build", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Build something creative", category: "Creative", day: "Friday", xp: 30 },
+  { id: "math-practice", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Math practice", category: "Math", day: "Monday", xp: 25, position: 0, supportMode: "independent" },
+  { id: "read-book", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Read for 20 minutes", category: "Reading", day: "Tuesday", xp: 20, position: 0, supportMode: "independent" },
+  { id: "writing", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Write one great paragraph", category: "Writing", day: "Wednesday", xp: 25, position: 0, supportMode: "independent" },
+  { id: "laundry", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Fold and put away laundry", category: "Life Skills", day: "Thursday", xp: 15, position: 0, supportMode: "with_parent" },
+  { id: "build", learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Build something creative", category: "Creative", day: "Friday", xp: 30, position: 0, supportMode: "independent" },
 ];
 
 const defaultDashboard: StoredDashboard = {
@@ -38,6 +39,8 @@ const defaultDashboard: StoredDashboard = {
   plans: [],
   tasks: sampleTasks,
   xpEvents: [],
+  taskSessions: [],
+  helpRequests: [],
   legacySickDays: [],
 };
 
@@ -49,9 +52,11 @@ function loadLocalDashboard(): StoredDashboard {
       return {
         ...defaultDashboard,
         ...parsed,
-        plans: (parsed.plans ?? []).map((plan) => ({ ...plan, learnerId: plan.learnerId ?? "local" })),
-        tasks: (parsed.tasks ?? []).map((task) => ({ ...task, learnerId: task.learnerId ?? "local" })),
+        plans: (parsed.plans ?? []).map((plan) => ({ ...plan, learnerId: plan.learnerId ?? "local", dailyRewards: plan.dailyRewards ?? {} })),
+        tasks: (parsed.tasks ?? []).map((task, position) => ({ ...task, learnerId: task.learnerId ?? "local", position: task.position ?? position, supportMode: task.supportMode ?? "independent" })),
         xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, learnerId: event.learnerId ?? "local" })),
+        taskSessions: parsed.taskSessions ?? [],
+        helpRequests: parsed.helpRequests ?? [],
       };
     } catch {
       return defaultDashboard;
@@ -71,8 +76,10 @@ function loadLocalDashboard(): StoredDashboard {
       learnerName: parsed.learnerName ?? defaultDashboard.learnerName,
       plans: [],
       legacySickDays: parsed.sickDays ?? [],
-      tasks: (parsed.tasks ?? sampleTasks).map((task) => ({ ...task, learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null })),
+      tasks: (parsed.tasks ?? sampleTasks).map((task, position) => ({ ...task, learnerId: "local", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, position, supportMode: "independent" })),
       xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, learnerId: "local", weeklyPlanId: null })),
+      taskSessions: [],
+      helpRequests: [],
     };
   } catch {
     return defaultDashboard;
@@ -86,16 +93,20 @@ async function loadLearners(client: SupabaseClient, userId: string): Promise<Lea
 }
 
 async function loadSupabaseDashboard(client: SupabaseClient, userId: string, learnerId: string, importLocal = true): Promise<StoredDashboard> {
-  const [settingsResult, plansResult, tasksResult, eventsResult] = await Promise.all([
+  const [settingsResult, plansResult, tasksResult, eventsResult, sessionsResult, helpResult] = await Promise.all([
     client.from("dashboard_settings").select("learner_name, sick_days, initialized").eq("user_id", userId).eq("learner_id", learnerId).maybeSingle(),
-    client.from("weekly_plans").select("id, learner_id, week_start, status, sick_days, created_at, completed_at").eq("user_id", userId).eq("learner_id", learnerId).order("week_start", { ascending: false }),
-    client.from("tasks").select("id, learner_id, weekly_plan_id, copied_from_task_id, removed_at, name, category, day, xp, created_at").eq("user_id", userId).eq("learner_id", learnerId).order("created_at"),
+    client.from("weekly_plans").select("id, learner_id, week_start, status, sick_days, daily_rewards, created_at, completed_at").eq("user_id", userId).eq("learner_id", learnerId).order("week_start", { ascending: false }),
+    client.from("tasks").select("id, learner_id, weekly_plan_id, copied_from_task_id, removed_at, name, category, day, xp, position, support_mode, created_at").eq("user_id", userId).eq("learner_id", learnerId).order("position").order("created_at"),
     client.from("xp_events").select("id, learner_id, weekly_plan_id, task_id, amount, reason, earned_at").eq("user_id", userId).eq("learner_id", learnerId).order("earned_at"),
+    client.from("task_sessions").select("id, task_id, started_at, ended_at, status").eq("user_id", userId).eq("learner_id", learnerId).order("started_at"),
+    client.from("help_requests").select("id, task_id, status, requested_at, resolved_at").eq("user_id", userId).eq("learner_id", learnerId).order("requested_at", { ascending: false }),
   ]);
   if (settingsResult.error) throw settingsResult.error;
   if (plansResult.error) throw plansResult.error;
   if (tasksResult.error) throw tasksResult.error;
   if (eventsResult.error) throw eventsResult.error;
+  if (sessionsResult.error) throw sessionsResult.error;
+  if (helpResult.error) throw helpResult.error;
 
   const settings = settingsResult.data;
   if (!settings?.initialized && importLocal) {
@@ -123,6 +134,7 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, lea
       weekStart: plan.week_start,
       status: plan.status,
       sickDays: plan.sick_days as Day[],
+      dailyRewards: (plan.daily_rewards ?? {}) as Partial<Record<Day, string>>,
       createdAt: plan.created_at,
       completedAt: plan.completed_at,
     })),
@@ -136,6 +148,8 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, lea
       category: task.category as Category,
       day: task.day as Day,
       xp: task.xp,
+      position: task.position,
+      supportMode: task.support_mode as SupportMode,
     })),
     xpEvents: (eventsResult.data ?? []).map((event) => ({
       id: event.id,
@@ -145,6 +159,20 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, lea
       amount: event.amount,
       earnedAt: event.earned_at,
       reason: event.reason as XPEvent["reason"],
+    })),
+    taskSessions: (sessionsResult.data ?? []).map((session) => ({
+      id: session.id,
+      taskId: session.task_id,
+      startedAt: session.started_at,
+      endedAt: session.ended_at,
+      status: session.status as "started" | "completed",
+    })),
+    helpRequests: (helpResult.data ?? []).map((request) => ({
+      id: request.id,
+      taskId: request.task_id,
+      status: request.status as "requested" | "resolved",
+      requestedAt: request.requested_at,
+      resolvedAt: request.resolved_at,
     })),
   };
 }
@@ -187,14 +215,23 @@ export function WeeklyDashboard() {
   const [taskXP, setTaskXP] = useState(20);
   const [taskDay, setTaskDay] = useState<Day>("Monday");
   const [taskCategory, setTaskCategory] = useState<Category>("Math");
+  const [taskSupportMode, setTaskSupportMode] = useState<SupportMode>("independent");
+  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [helpMessage, setHelpMessage] = useState("");
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [newLearnerName, setNewLearnerName] = useState("");
   const [addingLearner, setAddingLearner] = useState(false);
 
   useEffect(() => {
     if (supabase) {
       const client = supabase;
-      client.auth.getSession().then(({ data }) => {
-        setUserId(data.session?.user.id ?? null);
+      client.auth.getUser().then(async ({ data, error }) => {
+        if (error || !data.user) {
+          await client.auth.signOut({ scope: "local" });
+          setUserId(null);
+        } else {
+          setUserId(data.user.id);
+        }
         setAuthChecked(true);
       });
       const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
@@ -272,6 +309,8 @@ export function WeeklyDashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "weekly_plans", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "xp_events", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_sessions", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "help_requests", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .subscribe();
     return () => {
       active = false;
@@ -297,6 +336,19 @@ export function WeeklyDashboard() {
   const selectedEvents = eventsForSelection(dashboard.xpEvents, selectedPlan, selectedLearnerId ?? "local");
   const earnedByTask = completionEvents(selectedEvents);
   const sickDays = plan?.sickDays ?? dashboard.legacySickDays;
+  const orderedTasks = [...selectedTasks].sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.position - b.position || a.name.localeCompare(b.name));
+  const incompleteTasks = orderedTasks.filter((task) => !earnedByTask.has(task.id));
+  const expectedIncompleteTasks = incompleteTasks.filter((task) => !sickDays.includes(task.day));
+  const todayIncomplete = expectedIncompleteTasks.filter((task) => task.day === dayForDate());
+  const suggestedTask = todayIncomplete[0] ?? expectedIncompleteTasks.find((task) => DAYS.indexOf(task.day) >= DAYS.indexOf(dayForDate())) ?? expectedIncompleteTasks[0] ?? null;
+  const focusedTask = incompleteTasks.find((task) => task.id === focusedTaskId) ?? suggestedTask;
+  const activeSession = focusedTask ? dashboard.taskSessions.find((session) => session.taskId === focusedTask.id && !session.endedAt) ?? null : null;
+  const activeHelpRequest = focusedTask ? dashboard.helpRequests.find((request) => request.taskId === focusedTask.id && request.status === "requested") ?? null : null;
+  const focusedDayTasks = focusedTask ? orderedTasks.filter((task) => task.day === focusedTask.day && !sickDays.includes(task.day)) : [];
+  const focusedDayXP = focusedDayTasks.filter((task) => earnedByTask.has(task.id)).reduce((total, task) => total + task.xp, 0);
+  const focusedDayPlannedXP = focusedDayTasks.reduce((total, task) => total + task.xp, 0);
+  const selectedTaskIds = new Set(selectedTasks.map((task) => task.id));
+  const activePlanHelpRequests = dashboard.helpRequests.filter((request) => request.status === "requested" && selectedTaskIds.has(request.taskId));
   const editable = plan?.status === "published";
   const selectedWeekStart = plan?.weekStart ?? currentWeekStart();
   const earnedXP = xpTotal(selectedEvents);
@@ -351,15 +403,17 @@ export function WeeklyDashboard() {
       setDashboard((current) => {
         const taskBalance = current.xpEvents.filter((event) => event.taskId === task.id).reduce((total, event) => total + event.amount, 0);
         const currentlyComplete = taskBalance > 0;
+        const now = new Date().toISOString();
         return {
           ...current,
+          taskSessions: currentlyComplete ? current.taskSessions : current.taskSessions.map((session) => session.taskId === task.id && !session.endedAt ? { ...session, status: "completed", endedAt: now } : session),
           xpEvents: [...current.xpEvents, {
           id: crypto.randomUUID(),
           learnerId: task.learnerId,
           taskId: task.id,
           weeklyPlanId: task.weeklyPlanId,
           amount: currentlyComplete ? -taskBalance : task.xp,
-          earnedAt: new Date().toISOString(),
+          earnedAt: now,
           reason: currentlyComplete ? "task_unchecked" : "task_completed",
         }],
         };
@@ -369,6 +423,107 @@ export function WeeklyDashboard() {
       const otherTasksForDay = selectedTasks.filter((candidate) => candidate.day === task.day && candidate.id !== task.id);
       if (otherTasksForDay.every((candidate) => earnedByTask.has(candidate.id))) setCelebrationDay(task.day);
     }
+  }
+
+  async function startFocusedTask() {
+    if (!focusedTask || !editable) return;
+    setHelpMessage("");
+    if (supabase && userId) {
+      const { error } = await supabase.rpc("start_task", { p_task_id: focusedTask.id });
+      if (error) return setSyncError(error.message);
+      await reloadRemote();
+    } else {
+      setDashboard((current) => ({
+        ...current,
+        taskSessions: [...current.taskSessions, { id: crypto.randomUUID(), taskId: focusedTask.id, startedAt: new Date().toISOString(), endedAt: null, status: "started" }],
+      }));
+    }
+  }
+
+  async function requestHelp() {
+    if (!focusedTask) return;
+    setHelpMessage("");
+    if (!supabase) {
+      setDashboard((current) => ({ ...current, helpRequests: [...current.helpRequests, { id: crypto.randomUUID(), taskId: focusedTask.id, status: "requested", requestedAt: new Date().toISOString(), resolvedAt: null }] }));
+      setHelpMessage("Your help request is saved for your parent.");
+      return;
+    }
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return setSyncError("Sign in again to request help.");
+    const response = await fetch("/api/help-request", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ taskId: focusedTask.id }),
+    });
+    const result = await response.json() as { error?: string; emailed?: boolean };
+    if (!response.ok) return setSyncError(result.error ?? "Unable to request help.");
+    setHelpMessage(result.emailed ? "Your parent got an email. Help is on the way." : "Your help request is saved for your parent.");
+    await reloadRemote();
+  }
+
+  async function resolveHelpRequest(requestId: string) {
+    if (!supabase) {
+      setDashboard((current) => ({ ...current, helpRequests: current.helpRequests.map((request) => request.id === requestId ? { ...request, status: "resolved", resolvedAt: new Date().toISOString() } : request) }));
+      return;
+    }
+    const { error } = await supabase.rpc("resolve_help_request", { p_help_request_id: requestId });
+    if (error) return setSyncError(error.message);
+    await reloadRemote();
+  }
+
+  async function setSupportMode(task: Task, supportMode: SupportMode) {
+    if (!supabase) {
+      setDashboard((current) => ({ ...current, tasks: current.tasks.map((candidate) => candidate.id === task.id ? { ...candidate, supportMode } : candidate) }));
+      return;
+    }
+    const { error } = await supabase.rpc("set_task_support_mode", { p_task_id: task.id, p_support_mode: supportMode });
+    if (error) return setSyncError(error.message);
+    await reloadRemote();
+  }
+
+  async function saveDailyReward(day: Day, reward: string) {
+    if (!plan) return;
+    if (!supabase) {
+      setDashboard((current) => ({ ...current, plans: current.plans.map((candidate) => candidate.id === plan.id ? { ...candidate, dailyRewards: { ...candidate.dailyRewards, [day]: reward.trim() } } : candidate) }));
+      return;
+    }
+    const { error } = await supabase.rpc("set_daily_reward", { p_weekly_plan_id: plan.id, p_day: day, p_reward: reward });
+    if (error) return setSyncError(error.message);
+    await reloadRemote();
+  }
+
+  async function reorderDay(day: Day, taskIds: string[]) {
+    if (!plan) return;
+    if (!supabase) {
+      const positions = new Map(taskIds.map((id, position) => [id, position]));
+      setDashboard((current) => ({ ...current, tasks: current.tasks.map((task) => task.day === day && positions.has(task.id) ? { ...task, position: positions.get(task.id) as number } : task) }));
+      return;
+    }
+    const { error } = await supabase.rpc("reorder_daily_tasks", { p_weekly_plan_id: plan.id, p_day: day, p_task_ids: taskIds });
+    if (error) return setSyncError(error.message);
+    await reloadRemote();
+  }
+
+  async function moveTask(task: Task, direction: -1 | 1) {
+    const dayTasks = selectedTasks.filter((candidate) => candidate.day === task.day).sort((a, b) => a.position - b.position);
+    const index = dayTasks.findIndex((candidate) => candidate.id === task.id);
+    const destination = index + direction;
+    if (index < 0 || destination < 0 || destination >= dayTasks.length) return;
+    [dayTasks[index], dayTasks[destination]] = [dayTasks[destination], dayTasks[index]];
+    await reorderDay(task.day, dayTasks.map((candidate) => candidate.id));
+  }
+
+  async function dropTask(target: Task) {
+    if (!draggedTaskId || draggedTaskId === target.id) return setDraggedTaskId(null);
+    const dayTasks = selectedTasks.filter((candidate) => candidate.day === target.day).sort((a, b) => a.position - b.position);
+    const from = dayTasks.findIndex((candidate) => candidate.id === draggedTaskId);
+    const to = dayTasks.findIndex((candidate) => candidate.id === target.id);
+    setDraggedTaskId(null);
+    if (from < 0 || to < 0) return;
+    const [moved] = dayTasks.splice(from, 1);
+    dayTasks.splice(to, 0, moved);
+    await reorderDay(target.day, dayTasks.map((candidate) => candidate.id));
   }
 
   async function addTask(event: React.FormEvent<HTMLFormElement>) {
@@ -382,16 +537,18 @@ export function WeeklyDashboard() {
         p_category: taskCategory,
         p_day: taskDay,
         p_xp: taskXP,
+        p_support_mode: taskSupportMode,
       });
       if (error) return setSyncError(error.message);
       await reloadRemote();
     } else {
       setDashboard((current) => ({
         ...current,
-        tasks: [...current.tasks, { id: crypto.randomUUID(), learnerId: plan.learnerId, weeklyPlanId: plan.id, copiedFromTaskId: null, removedAt: null, name, category: taskCategory, day: taskDay, xp: taskXP }],
+        tasks: [...current.tasks, { id: crypto.randomUUID(), learnerId: plan.learnerId, weeklyPlanId: plan.id, copiedFromTaskId: null, removedAt: null, name, category: taskCategory, day: taskDay, xp: taskXP, position: selectedTasks.filter((task) => task.day === taskDay).length, supportMode: taskSupportMode }],
       }));
     }
     setTaskName("");
+    setTaskSupportMode("independent");
   }
 
   async function removeTask(taskId: string) {
@@ -446,7 +603,7 @@ export function WeeklyDashboard() {
         } else {
           const newPlanId = crypto.randomUUID();
           const now = new Date().toISOString();
-          const newPlan: WeeklyPlan = { id: newPlanId, learnerId: plan?.learnerId ?? selectedLearnerId ?? "local", weekStart: nextWeekStart, status: "published", sickDays: [...sickDays], createdAt: now, completedAt: null };
+          const newPlan: WeeklyPlan = { id: newPlanId, learnerId: plan?.learnerId ?? selectedLearnerId ?? "local", weekStart: nextWeekStart, status: "published", sickDays: [...sickDays], dailyRewards: {}, createdAt: now, completedAt: null };
           const copiedTasks = rolloverTasks.map((task) => ({ ...task, id: crypto.randomUUID(), weeklyPlanId: newPlanId, copiedFromTaskId: task.id, removedAt: null }));
           setDashboard((current) => ({
             ...current,
@@ -539,27 +696,61 @@ export function WeeklyDashboard() {
 
         <section className="overview-panel mt-5">
           <div className="reminder-panel"><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--purple)]">{isFirstPlanSetup ? weekLabel(selectedWeekStart) : selectedPlan === "legacy" ? "Legacy / Unassigned" : weekLabel(selectedWeekStart)}</p><h2 className="mt-2 max-w-2xl text-3xl font-black leading-[1.04] tracking-[-.03em] sm:text-4xl">{isFirstPlanSetup ? "Choose this week's tasks." : allComplete ? `You cleared the week, ${dashboard.learnerName}!` : editable ? "Finish early. Enjoy your whole day free." : "A preserved record of effort."}</h2><p className="mt-3 max-w-xl text-sm font-semibold text-[var(--muted)] sm:text-base">{isFirstPlanSetup ? "Open Parent view, adjust what belongs this week, then start the week." : editable ? "Choose any task, on any day. Every finished task moves you closer to free time." : "Past effort stays visible without changing earned XP."}</p></div>
-          <div className="xp-summary">{showDailyProgress ? <ProgressTracker label="Daily" earned={dailyXP} target={todayPlannedXP} tone="daily" detail={todayIsSick ? "Sick Day · Tasks were optional" : `${todayDay}'s assigned tasks`} /> : null}<ProgressTracker label={isFirstPlanSetup ? "Weekly preview" : selectedPlan === "legacy" ? "Legacy" : "Weekly"} earned={isFirstPlanSetup ? 0 : earnedXP} target={plannedXP} tone="weekly" detail={isFirstPlanSetup ? `${rolloverTasks.length} tasks selected · Parent setup needed` : `${expectedTasksLeft} expected tasks left · Sick Days removed`} /></div>
+          <div className="xp-summary">{showDailyProgress && view === "parent" ? <ProgressTracker label="Daily" earned={dailyXP} target={todayPlannedXP} tone="daily" detail={todayIsSick ? "Sick Day · Tasks were optional" : `${todayDay}'s assigned tasks`} /> : null}<ProgressTracker label={isFirstPlanSetup ? "Weekly preview" : selectedPlan === "legacy" ? "Legacy" : "Weekly"} earned={isFirstPlanSetup ? 0 : earnedXP} target={plannedXP} tone="weekly" detail={isFirstPlanSetup ? `${rolloverTasks.length} tasks selected · Parent setup needed` : `${expectedTasksLeft} expected tasks left · Sick Days removed`} /></div>
         </section>
 
         {view === "learner" ? (
           <section className="mt-5">
-            <div className="mb-4 flex items-end justify-between"><div><p className="label">Monday through Sunday</p><h2 className="mt-1 text-3xl font-black">My whole week</h2></div><p className="hidden font-bold text-[var(--muted)] sm:block">{isFirstPlanSetup ? "Parent setup needed" : editable ? "Any task. Any day." : "Read-only history"}</p></div>
+            <div className="mb-4">
+              <p className="label">One step at a time</p>
+              <h2 className="mt-1 text-3xl font-black">What do I do next?</h2>
+            </div>
+
+            {editable && focusedTask ? (
+              <article className="focus-card">
+                <div className="focus-card-main">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="focus-day">{focusedTask.day}</span>
+                    <span className="support-badge">{focusedTask.supportMode === "with_parent" ? "Do with a parent" : "Try it independently"}</span>
+                  </div>
+                  <p className="mt-5 text-sm font-black uppercase tracking-[.16em] text-[var(--muted)]">{activeSession ? "You are working on" : focusedTask.id === suggestedTask?.id ? "Suggested next" : "You chose"}</p>
+                  <h3 className="mt-2 text-4xl font-black leading-tight tracking-[-.03em]">{focusedTask.name}</h3>
+                  <p className="mt-2 font-bold text-[var(--muted)]">{focusedTask.category} · Earn {focusedTask.xp} XP for your effort</p>
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    {!activeSession ? <button className="primary-button focus-action" type="button" onClick={() => void startFocusedTask()}>{focusedTask.supportMode === "with_parent" ? "Start with my parent" : "Start this task"}</button> : <button className="primary-button focus-action" type="button" onClick={() => void toggleTask(focusedTask)}>I finished it</button>}
+                    <button className="secondary-button focus-action" type="button" onClick={() => void requestHelp()} disabled={Boolean(activeHelpRequest)}>{activeHelpRequest ? "Help requested" : "I need help"}</button>
+                  </div>
+                  {helpMessage ? <p className="mt-4 rounded-xl bg-white/70 p-3 text-sm font-black" role="status">{helpMessage}</p> : null}
+                </div>
+                <aside className="focus-progress">
+                  <ProgressTracker label="Daily" earned={focusedDayXP} target={focusedDayPlannedXP} tone="daily" detail={sickDays.includes(focusedTask.day) ? "Sick Day · Tasks are optional" : `${focusedTask.day}'s assigned tasks`} />
+                  {plan?.dailyRewards[focusedTask.day] ? <div className="reward-note"><span aria-hidden>★</span><p><strong>When the day is done</strong>{plan.dailyRewards[focusedTask.day]}</p></div> : null}
+                </aside>
+              </article>
+            ) : allComplete && plan ? (
+              <article className="focus-card focus-card-complete"><div><p className="label">The week is complete</p><h3 className="mt-2 text-4xl font-black">You did every task!</h3><p className="mt-3 font-bold text-[var(--muted)]">Your effort earned {earnedXP} XP.</p></div></article>
+            ) : <p className="paper-panel font-bold text-[var(--muted)]">A parent needs to start the week before tasks appear here.</p>}
+
+            {editable && incompleteTasks.length > 1 ? <label className="mt-4 block max-w-xl text-sm font-black">Want to choose something else?<select className="field mt-2" value={focusedTask?.id ?? ""} onChange={(event) => { setFocusedTaskId(event.target.value); setHelpMessage(""); }}>{incompleteTasks.map((task) => <option key={task.id} value={task.id}>{task.day}: {task.name}</option>)}</select></label> : null}
+
+            <div className="mb-4 mt-8 flex items-end justify-between"><div><p className="label">Monday through Sunday</p><h2 className="mt-1 text-3xl font-black">My whole week</h2></div><p className="hidden font-bold text-[var(--muted)] sm:block">{isFirstPlanSetup ? "Parent setup needed" : editable ? "You may choose another task." : "Read-only history"}</p></div>
             <div className="week-grid">
               {DAYS.map((day) => {
-                const dayTasks = selectedTasks.filter((task) => task.day === day);
+                const dayTasks = orderedTasks.filter((task) => task.day === day);
                 const dayDate = dateForDay(day, selectedWeekStart);
                 const isSickDay = sickDays.includes(day);
                 const clearedEarly = selectedPlan !== "legacy" && dayTasks.length > 0 && dayTasks.every((task) => { const event = earnedByTask.get(task.id); return event ? new Date(event.earnedAt) < dayDate : false; });
                 const isToday = showDailyProgress && dayDate.toDateString() === new Date().toDateString();
                 const dateCaption = selectedPlan === "legacy" && !isFirstPlanSetup ? "Unassigned" : isToday ? "Today" : shortDate(day, selectedWeekStart);
-                return <article key={day} className={`day-card ${isToday ? "day-card-today" : ""} ${clearedEarly ? "day-card-cleared" : ""} ${isSickDay ? "day-card-sick" : ""}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[var(--muted)]">{dateCaption}</p><h3 className="mt-1 text-xl font-black">{day}</h3></div>{isSickDay ? <span className="sick-badge">Sick Day</span> : clearedEarly ? <span className="off-badge">Day off</span> : null}</div>{editable ? <button className={`sick-day-button ${isSickDay ? "sick-day-button-active" : ""}`} type="button" onClick={() => void toggleSickDay(day)} aria-pressed={isSickDay}>{isSickDay ? "Remove Sick Day" : "Mark Sick Day"}</button> : null}{isSickDay ? <p className="mt-2 text-xs font-bold text-[var(--muted)]">These tasks are optional, but their earned XP is preserved.</p> : null}<div className="mt-4 grid gap-3">{dayTasks.map((task) => { const complete = earnedByTask.has(task.id); return <button key={task.id} className={`task-button ${complete ? "task-button-complete" : ""}`} onClick={() => void toggleTask(task)} aria-pressed={complete} disabled={!editable}><span className="task-check" aria-hidden>{complete ? "✓" : ""}</span><span className="min-w-0 flex-1 text-left"><strong className="block leading-tight">{task.name}</strong><small className="mt-1 block font-bold text-[var(--muted)]">{complete ? editable ? "Done · Tap to undo" : "Completed" : task.category}</small></span><span className="whitespace-nowrap font-black text-[var(--purple)]">+{task.xp}</span></button>; })}{!dayTasks.length ? <p className="rounded-xl border-2 border-dashed border-[var(--line)] p-4 text-center text-sm font-bold text-[var(--muted)]">Open day</p> : null}</div></article>;
+                return <article key={day} className={`day-card ${isToday ? "day-card-today" : ""} ${clearedEarly ? "day-card-cleared" : ""} ${isSickDay ? "day-card-sick" : ""}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[var(--muted)]">{dateCaption}</p><h3 className="mt-1 text-xl font-black">{day}</h3></div>{isSickDay ? <span className="sick-badge">Sick Day</span> : clearedEarly ? <span className="off-badge">Day off</span> : null}</div>{isSickDay ? <p className="mt-2 text-xs font-bold text-[var(--muted)]">These tasks are optional, but their earned XP is preserved.</p> : null}<div className="mt-4 grid gap-3">{dayTasks.map((task) => { const complete = earnedByTask.has(task.id); return <button key={task.id} className={`task-button ${complete ? "task-button-complete" : ""} ${focusedTask?.id === task.id ? "task-button-focused" : ""}`} onClick={() => { if (!editable) return; if (complete) void toggleTask(task); else setFocusedTaskId(task.id); }} aria-pressed={focusedTask?.id === task.id} disabled={!editable}><span className="task-check" aria-hidden>{complete ? "✓" : ""}</span><span className="min-w-0 flex-1 text-left"><strong className="block leading-tight">{task.name}</strong><small className="mt-1 block font-bold text-[var(--muted)]">{complete ? "Completed · Tap to undo" : task.supportMode === "with_parent" ? "With a parent" : task.category}</small></span><span className="whitespace-nowrap font-black text-[var(--purple)]">+{task.xp}</span></button>; })}{!dayTasks.length ? <p className="rounded-xl border-2 border-dashed border-[var(--line)] p-4 text-center text-sm font-bold text-[var(--muted)]">Open day</p> : null}</div></article>;
               })}
             </div>
           </section>
         ) : (
           <section className="mt-7 grid gap-6 lg:grid-cols-[.72fr_1.28fr]">
             <div className="grid h-fit gap-6">
+              {plan && editable ? <div className="paper-panel"><p className="label">Next-task setup</p><h2 className="mt-1 text-2xl font-black">Plan each day</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Drag tasks into a suggested order. Learners may still choose another task.</p><div className="mt-5 grid gap-5">{DAYS.map((day) => { const dayTasks = orderedTasks.filter((task) => task.day === day); return <section key={day} className="parent-day-plan"><div className="flex items-center justify-between gap-3"><h3 className="text-lg font-black">{day}</h3><button className={`sick-day-button ${sickDays.includes(day) ? "sick-day-button-active" : ""}`} type="button" onClick={() => void toggleSickDay(day)}>{sickDays.includes(day) ? "Sick day" : "Mark sick"}</button></div><label className="field-label mt-3">Daily reward<input key={`${plan.id}-${day}-${plan.dailyRewards[day] ?? ""}`} className="field" defaultValue={plan.dailyRewards[day] ?? ""} placeholder="Example: choose tonight's game" maxLength={160} onBlur={(event) => void saveDailyReward(day, event.currentTarget.value)} /></label><div className="mt-3 grid gap-2">{dayTasks.map((task, index) => <div key={task.id} className="parent-order-row" draggable onDragStart={() => setDraggedTaskId(task.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropTask(task)}><span className="drag-handle" aria-hidden>⋮⋮</span><div className="min-w-0 flex-1"><strong className="block truncate">{task.name}</strong><select className="support-select" value={task.supportMode} onChange={(event) => void setSupportMode(task, event.target.value as SupportMode)} aria-label={`Support for ${task.name}`}><option value="independent">Try independently</option><option value="with_parent">Do with a parent</option></select></div><div className="flex gap-1"><button className="order-button" type="button" onClick={() => void moveTask(task, -1)} disabled={index === 0} aria-label={`Move ${task.name} earlier`}>↑</button><button className="order-button" type="button" onClick={() => void moveTask(task, 1)} disabled={index === dayTasks.length - 1} aria-label={`Move ${task.name} later`}>↓</button></div></div>)}</div></section>; })}</div></div> : null}
+              {activePlanHelpRequests.length ? <div className="paper-panel"><p className="label">Needs you</p><h2 className="mt-1 text-2xl font-black">Help requests</h2><div className="mt-4 grid gap-3">{activePlanHelpRequests.map((request) => { const task = selectedTasks.find((candidate) => candidate.id === request.taskId); return <div key={request.id} className="help-request-row"><div><strong>{task?.name ?? "Task"}</strong><p>{task?.day} · Requested {new Date(request.requestedAt).toLocaleString()}</p></div><button className="secondary-button" type="button" onClick={() => void resolveHelpRequest(request.id)}>Resolved</button></div>; })}</div></div> : null}
               {supabase ? <form className="paper-panel" onSubmit={addLearner}><p className="label">Family learners</p><h2 className="mt-1 text-2xl font-black">Add another learner</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Each learner gets a separate weekly plan, task history, and XP total under this family login.</p><label className="field-label mt-5">Learner name<input className="field" value={newLearnerName} onChange={(event) => setNewLearnerName(event.target.value)} placeholder="Learner name" maxLength={80} required /></label><button className="secondary-button mt-4 w-full" type="submit" disabled={addingLearner}>{addingLearner ? "Adding learner..." : "Add learner"}</button></form> : null}
               <form className="paper-panel" onSubmit={addTask}><p className="label">Plan the week</p><h2 className="mt-1 text-3xl font-black">Add a task</h2>{editable ? <><label className="field-label mt-6">Task name<input className="field" value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="Read for 20 minutes" maxLength={80} required /></label><div className="mt-4 grid grid-cols-2 gap-3"><label className="field-label">Planned day<select className="field" value={taskDay} onChange={(event) => setTaskDay(event.target.value as Day)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><label className="field-label">XP<input className="field" type="number" min="1" max="500" value={taskXP} onChange={(event) => setTaskXP(Number(event.target.value))} required /></label></div><label className="field-label mt-4">Category<select className="field" value={taskCategory} onChange={(event) => setTaskCategory(event.target.value as Category)}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><button className="primary-button mt-5 w-full" type="submit">Add to the week</button></> : <p className="mt-5 font-bold text-[var(--muted)]">Select the current published week to add tasks.</p>}</form>
               {canStartNextWeek ? <div className="paper-panel"><p className="label">{plan ? "Rollover" : "First dated plan"}</p><h2 className="mt-1 text-2xl font-black">{plan ? "Start next week" : "Start this week"}</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Copy selected tasks into {weekLabel(nextWeekStart)}. New task IDs and a fresh completion state will be created.</p>{plan ? <div className="mt-4 grid gap-2">{selectedTasks.map((task) => <label key={task.id} className="rollover-task"><input type="checkbox" checked={!excludedRolloverTasks.has(task.id)} onChange={() => toggleRolloverTask(task.id)} /><span><strong>{task.name}</strong><small>{task.day} · {task.xp} XP</small></span></label>)}</div> : <p className="mt-4 rounded-xl bg-[var(--paper)] p-3 text-sm font-bold text-[var(--muted)]">Use the Include controls in the weekly plan, then start the week. After it starts, you can add or remove its task copies.</p>}<button className="primary-button mt-5 w-full" type="button" disabled={rollingOver || rolloverTasks.length === 0} onClick={() => void startNextWeek()}>{rollingOver ? "Starting week..." : plan ? "Start next week" : "Start first weekly plan"}</button></div> : null}
