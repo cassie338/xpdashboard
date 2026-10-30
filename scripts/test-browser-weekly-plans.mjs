@@ -93,6 +93,14 @@ try {
   const undoneWeeklyText = await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText();
   assert(/0\s*\/\s*115 XP/.test(undoneWeeklyText), `Unexpected undo total: ${undoneWeeklyText}`);
 
+  const mondayTask = page.locator(".day-card").filter({ has: page.getByRole("heading", { name: "Monday", exact: true }) }).locator(".task-button").first();
+  await mondayTask.getByRole("button", { name: "Complete Math practice" }).click();
+  await mondayTask.getByText("Completed · Tap to undo").waitFor();
+  await celebration.waitFor({ state: "visible" });
+  await celebration.getByRole("button", { name: "Awesome!" }).click();
+  await mondayTask.getByRole("button", { name: "Undo Math practice" }).click();
+  await mondayTask.getByText("Math", { exact: true }).waitFor();
+
   await enterParentView();
   const helpPanel = page.locator(".paper-panel").filter({ has: page.getByRole("heading", { name: "Help requests" }) });
   await helpPanel.getByText("Write one great paragraph", { exact: true }).waitFor();
@@ -115,11 +123,11 @@ try {
   await page.getByLabel("View week").selectOption(historyValue);
   await page.getByText("Completed week: This history is read-only.").waitFor();
   await page.getByRole("button", { name: "Learner", exact: true }).click();
-  assert(await page.locator(".task-button:disabled").count() === 4, "Removed Wednesday task still appeared in history or controls were not disabled.");
+  assert(await page.locator(".task-button").count() === 4 && await page.locator(".task-check-button:disabled").count() === 4, "Removed Wednesday task still appeared in history or controls were not disabled.");
 
   await page.getByLabel("View week").selectOption("legacy");
   await page.getByText("Legacy / Unassigned: These records are preserved exactly as they were.").waitFor();
-  assert(await page.locator(".task-button:disabled").count() === 5, "Legacy task controls were not read-only.");
+  assert(await page.locator(".task-button").count() === 5 && await page.locator(".task-check-button:disabled").count() === 5, "Legacy task controls were not read-only.");
 
   await enterParentView();
   const addLearnerForm = page.locator("form").filter({ has: page.getByRole("heading", { name: "Add another learner" }) });
@@ -136,7 +144,7 @@ try {
   await addTaskForm.getByLabel("Task name").fill("Second learner math");
   await addTaskForm.getByRole("button", { name: "Add to the week" }).click();
   await page.getByRole("button", { name: "Learner", exact: true }).click();
-  const secondLearnerTask = page.getByRole("button", { name: /Second learner math/ });
+  const secondLearnerTask = page.locator(".task-button").filter({ hasText: "Second learner math" });
   await secondLearnerTask.click();
   await page.getByRole("button", { name: "Start this task" }).click();
   await page.getByRole("button", { name: "I finished it" }).click();
