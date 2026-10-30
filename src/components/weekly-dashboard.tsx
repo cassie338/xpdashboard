@@ -10,10 +10,12 @@ import {
   xpTotal,
   type Category,
   type LearnerProfile,
+  type ParentStruggleObservation,
   type PlanSelection,
   type StoredDashboard,
   type SupportMode,
   type Task,
+  type TaskSwapRequest,
   type WeeklyPlan,
   type XPEvent,
 } from "@/lib/dashboard-model";
@@ -41,6 +43,8 @@ const defaultDashboard: StoredDashboard = {
   xpEvents: [],
   taskSessions: [],
   helpRequests: [],
+  parentStruggles: [],
+  taskSwapRequests: [],
   legacySickDays: [],
 };
 
@@ -57,6 +61,8 @@ function loadLocalDashboard(): StoredDashboard {
         xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, learnerId: event.learnerId ?? "local" })),
         taskSessions: parsed.taskSessions ?? [],
         helpRequests: parsed.helpRequests ?? [],
+        parentStruggles: parsed.parentStruggles ?? [],
+        taskSwapRequests: parsed.taskSwapRequests ?? [],
       };
     } catch {
       return defaultDashboard;
@@ -80,6 +86,8 @@ function loadLocalDashboard(): StoredDashboard {
       xpEvents: (parsed.xpEvents ?? []).map((event) => ({ ...event, learnerId: "local", weeklyPlanId: null })),
       taskSessions: [],
       helpRequests: [],
+      parentStruggles: [],
+      taskSwapRequests: [],
     };
   } catch {
     return defaultDashboard;
@@ -93,13 +101,15 @@ async function loadLearners(client: SupabaseClient, userId: string): Promise<Lea
 }
 
 async function loadSupabaseDashboard(client: SupabaseClient, userId: string, learnerId: string, importLocal = true): Promise<StoredDashboard> {
-  const [settingsResult, plansResult, tasksResult, eventsResult, sessionsResult, helpResult] = await Promise.all([
+  const [settingsResult, plansResult, tasksResult, eventsResult, sessionsResult, helpResult, strugglesResult, swapsResult] = await Promise.all([
     client.from("dashboard_settings").select("learner_name, sick_days, initialized").eq("user_id", userId).eq("learner_id", learnerId).maybeSingle(),
     client.from("weekly_plans").select("id, learner_id, week_start, status, sick_days, daily_rewards, created_at, completed_at").eq("user_id", userId).eq("learner_id", learnerId).order("week_start", { ascending: false }),
     client.from("tasks").select("id, learner_id, weekly_plan_id, copied_from_task_id, removed_at, name, category, day, xp, position, support_mode, created_at").eq("user_id", userId).eq("learner_id", learnerId).order("position").order("created_at"),
     client.from("xp_events").select("id, learner_id, weekly_plan_id, task_id, amount, reason, earned_at").eq("user_id", userId).eq("learner_id", learnerId).order("earned_at"),
     client.from("task_sessions").select("id, task_id, started_at, ended_at, status").eq("user_id", userId).eq("learner_id", learnerId).order("started_at"),
     client.from("help_requests").select("id, task_id, status, requested_at, resolved_at").eq("user_id", userId).eq("learner_id", learnerId).order("requested_at", { ascending: false }),
+    client.from("parent_struggle_observations").select("id, task_id, category, description, provenance, recorded_at").eq("user_id", userId).eq("learner_id", learnerId).order("recorded_at", { ascending: false }),
+    client.from("task_swap_requests").select("id, weekly_plan_id, original_task_id, replacement_task_id, day, requested_name, status, requested_at, reviewed_at").eq("user_id", userId).eq("learner_id", learnerId).order("requested_at", { ascending: false }),
   ]);
   if (settingsResult.error) throw settingsResult.error;
   if (plansResult.error) throw plansResult.error;
@@ -107,6 +117,8 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, lea
   if (eventsResult.error) throw eventsResult.error;
   if (sessionsResult.error) throw sessionsResult.error;
   if (helpResult.error) throw helpResult.error;
+  if (strugglesResult.error) throw strugglesResult.error;
+  if (swapsResult.error) throw swapsResult.error;
 
   const settings = settingsResult.data;
   if (!settings?.initialized && importLocal) {
@@ -174,6 +186,25 @@ async function loadSupabaseDashboard(client: SupabaseClient, userId: string, lea
       requestedAt: request.requested_at,
       resolvedAt: request.resolved_at,
     })),
+    parentStruggles: (strugglesResult.data ?? []).map((observation) => ({
+      id: observation.id,
+      taskId: observation.task_id,
+      category: observation.category as Category,
+      description: observation.description,
+      provenance: observation.provenance as ParentStruggleObservation["provenance"],
+      recordedAt: observation.recorded_at,
+    })),
+    taskSwapRequests: (swapsResult.data ?? []).map((request) => ({
+      id: request.id,
+      weeklyPlanId: request.weekly_plan_id,
+      originalTaskId: request.original_task_id,
+      replacementTaskId: request.replacement_task_id,
+      day: request.day as Day,
+      requestedName: request.requested_name,
+      status: request.status as TaskSwapRequest["status"],
+      requestedAt: request.requested_at,
+      reviewedAt: request.reviewed_at,
+    })),
   };
 }
 
@@ -218,6 +249,7 @@ export function WeeklyDashboard() {
   const [taskSupportMode, setTaskSupportMode] = useState<SupportMode>("independent");
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [helpMessage, setHelpMessage] = useState("");
+  const [showSwapForm, setShowSwapForm] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [newLearnerName, setNewLearnerName] = useState("");
   const [addingLearner, setAddingLearner] = useState(false);
@@ -311,6 +343,8 @@ export function WeeklyDashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "xp_events", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "task_sessions", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "help_requests", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "parent_struggle_observations", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_swap_requests", filter: `learner_id=eq.${selectedLearnerId}` }, refresh)
       .subscribe();
     return () => {
       active = false;
@@ -349,6 +383,10 @@ export function WeeklyDashboard() {
   const focusedDayPlannedXP = focusedDayTasks.reduce((total, task) => total + task.xp, 0);
   const selectedTaskIds = new Set(selectedTasks.map((task) => task.id));
   const activePlanHelpRequests = dashboard.helpRequests.filter((request) => request.status === "requested" && selectedTaskIds.has(request.taskId));
+  const parentLedTasks = orderedTasks.filter((task) => task.supportMode === "with_parent");
+  const selectedSwapRequests = plan ? dashboard.taskSwapRequests.filter((request) => request.weeklyPlanId === plan.id) : [];
+  const focusedPendingSwap = focusedTask ? selectedSwapRequests.find((request) => request.originalTaskId === focusedTask.id && request.status === "pending") ?? null : null;
+  const focusedDayActiveSwap = focusedTask ? selectedSwapRequests.find((request) => request.day === focusedTask.day && (request.status === "pending" || request.status === "approved")) ?? null : null;
   const editable = plan?.status === "published";
   const selectedWeekStart = plan?.weekStart ?? currentWeekStart();
   const earnedXP = xpTotal(selectedEvents);
@@ -375,12 +413,14 @@ export function WeeklyDashboard() {
     setSelectedPlan("legacy");
     setExcludedRolloverTasks(new Set());
     setCelebrationDay(null);
+    setShowSwapForm(false);
     setSelectedLearnerId(learnerId);
   }
 
   function changeSelection(selection: PlanSelection) {
     setSelectedPlan(selection);
     setExcludedRolloverTasks(new Set());
+    setShowSwapForm(false);
   }
 
   function toggleRolloverTask(taskId: string) {
@@ -394,6 +434,10 @@ export function WeeklyDashboard() {
 
   async function toggleTask(task: Task) {
     if (!editable) return;
+    if (dashboard.taskSwapRequests.some((request) => request.originalTaskId === task.id && request.status === "pending")) {
+      setSyncError("A parent needs to review this swap before the task can be completed.");
+      return;
+    }
     const complete = earnedByTask.has(task.id);
     if (supabase && userId) {
       const { error } = await supabase.rpc("record_task_completion", { p_task_id: task.id, p_complete: !complete });
@@ -489,6 +533,71 @@ export function WeeklyDashboard() {
       return;
     }
     const { error } = await supabase.rpc("set_daily_reward", { p_weekly_plan_id: plan.id, p_day: day, p_reward: reward });
+    if (error) return setSyncError(error.message);
+    await reloadRemote();
+  }
+
+  async function recordParentStruggle(event: React.FormEvent<HTMLFormElement>, task: Task) {
+    event.preventDefault();
+    if (!editable || task.supportMode !== "with_parent") return;
+    const form = event.currentTarget;
+    const description = String(new FormData(form).get("description") ?? "").trim();
+    if (!description) return;
+    setSyncError("");
+    if (!supabase) {
+      setDashboard((current) => ({
+        ...current,
+        parentStruggles: [{ id: crypto.randomUUID(), taskId: task.id, category: task.category, description, provenance: "parent_reported", recordedAt: new Date().toISOString() }, ...current.parentStruggles],
+      }));
+      form.reset();
+      return;
+    }
+    const { error } = await supabase.rpc("record_parent_struggle", { p_task_id: task.id, p_description: description });
+    if (error) return setSyncError(error.message);
+    form.reset();
+    await reloadRemote();
+  }
+
+  async function requestTaskSwap(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!focusedTask || !editable || activeSession || focusedDayActiveSwap) return;
+    const form = event.currentTarget;
+    const requestedName = String(new FormData(form).get("requestedName") ?? "").trim();
+    if (!requestedName) return;
+    setSyncError("");
+    if (!supabase) {
+      setDashboard((current) => ({
+        ...current,
+        taskSwapRequests: [{ id: crypto.randomUUID(), weeklyPlanId: focusedTask.weeklyPlanId as string, originalTaskId: focusedTask.id, replacementTaskId: null, day: focusedTask.day, requestedName, status: "pending", requestedAt: new Date().toISOString(), reviewedAt: null }, ...current.taskSwapRequests],
+      }));
+      form.reset();
+      setShowSwapForm(false);
+      return;
+    }
+    const { error } = await supabase.rpc("request_task_swap", { p_task_id: focusedTask.id, p_requested_name: requestedName });
+    if (error) return setSyncError(error.message);
+    form.reset();
+    setShowSwapForm(false);
+    await reloadRemote();
+  }
+
+  async function reviewTaskSwap(request: TaskSwapRequest, approve: boolean) {
+    setSyncError("");
+    if (!supabase) {
+      const now = new Date().toISOString();
+      setDashboard((current) => {
+        const original = current.tasks.find((task) => task.id === request.originalTaskId);
+        if (!original) return current;
+        const replacementId = approve ? crypto.randomUUID() : null;
+        return {
+          ...current,
+          tasks: approve ? [...current.tasks.map((task) => task.id === original.id ? { ...task, removedAt: now } : task), { ...original, id: replacementId as string, copiedFromTaskId: null, removedAt: null, name: request.requestedName }] : current.tasks,
+          taskSwapRequests: current.taskSwapRequests.map((candidate) => candidate.id === request.id ? { ...candidate, status: approve ? "approved" : "rejected", replacementTaskId: replacementId, reviewedAt: now } : candidate),
+        };
+      });
+      return;
+    }
+    const { error } = await supabase.rpc("review_task_swap", { p_swap_request_id: request.id, p_approve: approve });
     if (error) return setSyncError(error.message);
     await reloadRemote();
   }
@@ -717,9 +826,12 @@ export function WeeklyDashboard() {
                   <h3 className="mt-2 text-4xl font-black leading-tight tracking-[-.03em]">{focusedTask.name}</h3>
                   <p className="mt-2 font-bold text-[var(--muted)]">{focusedTask.category} · Earn {focusedTask.xp} XP for your effort</p>
                   <div className="mt-6 flex flex-wrap gap-3">
-                    {!activeSession ? <button className="primary-button focus-action" type="button" onClick={() => void startFocusedTask()}>{focusedTask.supportMode === "with_parent" ? "Start with my parent" : "Start this task"}</button> : <button className="primary-button focus-action" type="button" onClick={() => void toggleTask(focusedTask)}>I finished it</button>}
+                    {!activeSession ? <button className="primary-button focus-action" type="button" onClick={() => void startFocusedTask()} disabled={Boolean(focusedPendingSwap)}>{focusedTask.supportMode === "with_parent" ? "Start with my parent" : "Start this task"}</button> : <button className="primary-button focus-action" type="button" onClick={() => void toggleTask(focusedTask)}>I finished it</button>}
                     <button className="secondary-button focus-action" type="button" onClick={() => void requestHelp()} disabled={Boolean(activeHelpRequest)}>{activeHelpRequest ? "Help requested" : "I need help"}</button>
+                    <button className="secondary-button focus-action" type="button" onClick={() => setShowSwapForm((current) => !current)} disabled={Boolean(activeSession || focusedDayActiveSwap)}>{focusedPendingSwap ? "Swap pending" : focusedDayActiveSwap ? "Daily swap used" : "Swap this activity"}</button>
                   </div>
+                  {focusedPendingSwap ? <p className="swap-status mt-4"><strong>Waiting for parent approval:</strong> {focusedPendingSwap.requestedName}</p> : null}
+                  {showSwapForm && !focusedDayActiveSwap ? <form className="swap-form mt-4" onSubmit={(event) => void requestTaskSwap(event)}><label className="field-label">What do you want to do instead?<input className="field" name="requestedName" placeholder="Piano" maxLength={80} autoFocus required /></label><div className="mt-2 grid grid-cols-2 gap-2"><button className="secondary-button" type="button" onClick={() => setShowSwapForm(false)}>Cancel</button><button className="primary-button" type="submit">Ask my parent</button></div><p>One approved swap is allowed each day.</p></form> : null}
                   {helpMessage ? <p className="mt-4 rounded-xl bg-white/70 p-3 text-sm font-black" role="status">{helpMessage}</p> : null}
                 </div>
                 <aside className="focus-progress">
@@ -731,7 +843,7 @@ export function WeeklyDashboard() {
               <article className="focus-card focus-card-complete"><div><p className="label">The week is complete</p><h3 className="mt-2 text-4xl font-black">You did every task!</h3><p className="mt-3 font-bold text-[var(--muted)]">Your effort earned {earnedXP} XP.</p></div></article>
             ) : <p className="paper-panel font-bold text-[var(--muted)]">A parent needs to start the week before tasks appear here.</p>}
 
-            {editable && incompleteTasks.length > 1 ? <label className="mt-4 block max-w-xl text-sm font-black">Want to choose something else?<select className="field mt-2" value={focusedTask?.id ?? ""} onChange={(event) => { setFocusedTaskId(event.target.value); setHelpMessage(""); }}>{incompleteTasks.map((task) => <option key={task.id} value={task.id}>{task.day}: {task.name}</option>)}</select></label> : null}
+            {editable && incompleteTasks.length > 1 ? <label className="mt-4 block max-w-xl text-sm font-black">Want to choose something else?<select className="field mt-2" value={focusedTask?.id ?? ""} onChange={(event) => { setFocusedTaskId(event.target.value); setHelpMessage(""); setShowSwapForm(false); }}>{incompleteTasks.map((task) => <option key={task.id} value={task.id}>{task.day}: {task.name}</option>)}</select></label> : null}
 
             <div className="mb-4 mt-8 flex items-end justify-between"><div><p className="label">Monday through Sunday</p><h2 className="mt-1 text-3xl font-black">My whole week</h2></div><p className="hidden font-bold text-[var(--muted)] sm:block">{isFirstPlanSetup ? "Parent setup needed" : editable ? "You may choose another task." : "Read-only history"}</p></div>
             <div className="week-grid">
@@ -749,6 +861,8 @@ export function WeeklyDashboard() {
         ) : (
           <section className="mt-7 grid gap-6 lg:grid-cols-[.72fr_1.28fr]">
             <div className="grid h-fit gap-6">
+              {selectedSwapRequests.length ? <div className="paper-panel"><p className="label">Needs parent review</p><h2 className="mt-1 text-2xl font-black">Swap requests</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">An approved swap keeps the original XP and counts toward the day&apos;s reward.</p><div className="mt-4 grid gap-3">{selectedSwapRequests.map((request) => { const original = dashboard.tasks.find((task) => task.id === request.originalTaskId); return <article key={request.id} className={`swap-request swap-request-${request.status}`}><div><span className="status-badge">{request.status}</span><h3 className="mt-2 font-black">{original?.name ?? "Original activity"} → {request.requestedName}</h3><p>{request.day} · {original?.xp ?? 0} XP · Requested {new Date(request.requestedAt).toLocaleString()}</p></div>{request.status === "pending" && editable ? <div className="mt-3 grid grid-cols-2 gap-2"><button className="secondary-button" type="button" onClick={() => void reviewTaskSwap(request, false)}>Keep original</button><button className="primary-button" type="button" onClick={() => void reviewTaskSwap(request, true)}>Approve swap</button></div> : null}</article>; })}</div></div> : null}
+              {parentLedTasks.length ? <div className="paper-panel"><p className="label">Parent-led work</p><h2 className="mt-1 text-2xl font-black">Struggles</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Save what you noticed during work together. These notes do not change XP or completion.</p><div className="mt-5 grid gap-5">{categories.map((category) => { const categoryTasks = parentLedTasks.filter((task) => task.category === category); if (!categoryTasks.length) return null; return <section key={category} className="struggle-category"><h3>{category}</h3><div className="mt-3 grid gap-3">{categoryTasks.map((task) => { const observations = dashboard.parentStruggles.filter((observation) => observation.taskId === task.id); return <article key={task.id} className="struggle-task"><div><strong>{task.name}</strong><p>{task.day} · Parent-led</p></div>{editable ? <form className="mt-3" onSubmit={(event) => void recordParentStruggle(event, task)}><label className="field-label">Struggle noticed<textarea className="field struggle-field" name="description" aria-label={`Struggle noticed for ${task.name}`} placeholder="Describe what was difficult or the error you noticed" maxLength={1000} required /></label><button className="secondary-button mt-2 w-full" type="submit">Save struggle</button></form> : null}<div className="mt-3 grid gap-2">{observations.map((observation) => <div key={observation.id} className="struggle-observation"><p>{observation.description}</p><small>Parent reported · {new Date(observation.recordedAt).toLocaleString()}</small></div>)}{!observations.length ? <p className="text-xs font-bold text-[var(--muted)]">No struggles recorded yet.</p> : null}</div></article>; })}</div></section>; })}</div></div> : null}
               {plan && editable ? <div className="paper-panel"><p className="label">Next-task setup</p><h2 className="mt-1 text-2xl font-black">Plan each day</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Drag tasks into a suggested order. Learners may still choose another task.</p><div className="mt-5 grid gap-5">{DAYS.map((day) => { const dayTasks = orderedTasks.filter((task) => task.day === day); return <section key={day} className="parent-day-plan"><div className="flex items-center justify-between gap-3"><h3 className="text-lg font-black">{day}</h3><button className={`sick-day-button ${sickDays.includes(day) ? "sick-day-button-active" : ""}`} type="button" onClick={() => void toggleSickDay(day)}>{sickDays.includes(day) ? "Sick day" : "Mark sick"}</button></div><label className="field-label mt-3">Daily reward<input key={`${plan.id}-${day}-${plan.dailyRewards[day] ?? ""}`} className="field" defaultValue={plan.dailyRewards[day] ?? ""} placeholder="Example: choose tonight's game" maxLength={160} onBlur={(event) => void saveDailyReward(day, event.currentTarget.value)} /></label><div className="mt-3 grid gap-2">{dayTasks.map((task, index) => <div key={task.id} className="parent-order-row" draggable onDragStart={() => setDraggedTaskId(task.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropTask(task)}><span className="drag-handle" aria-hidden>⋮⋮</span><div className="min-w-0 flex-1"><strong className="block truncate">{task.name}</strong><select className="support-select" value={task.supportMode} onChange={(event) => void setSupportMode(task, event.target.value as SupportMode)} aria-label={`Support for ${task.name}`}><option value="independent">Try independently</option><option value="with_parent">Do with a parent</option></select></div><div className="flex gap-1"><button className="order-button" type="button" onClick={() => void moveTask(task, -1)} disabled={index === 0} aria-label={`Move ${task.name} earlier`}>↑</button><button className="order-button" type="button" onClick={() => void moveTask(task, 1)} disabled={index === dayTasks.length - 1} aria-label={`Move ${task.name} later`}>↓</button></div></div>)}</div></section>; })}</div></div> : null}
               {activePlanHelpRequests.length ? <div className="paper-panel"><p className="label">Needs you</p><h2 className="mt-1 text-2xl font-black">Help requests</h2><div className="mt-4 grid gap-3">{activePlanHelpRequests.map((request) => { const task = selectedTasks.find((candidate) => candidate.id === request.taskId); return <div key={request.id} className="help-request-row"><div><strong>{task?.name ?? "Task"}</strong><p>{task?.day} · Requested {new Date(request.requestedAt).toLocaleString()}</p></div><button className="secondary-button" type="button" onClick={() => void resolveHelpRequest(request.id)}>Resolved</button></div>; })}</div></div> : null}
               {supabase ? <form className="paper-panel" onSubmit={addLearner}><p className="label">Family learners</p><h2 className="mt-1 text-2xl font-black">Add another learner</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Each learner gets a separate weekly plan, task history, and XP total under this family login.</p><label className="field-label mt-5">Learner name<input className="field" value={newLearnerName} onChange={(event) => setNewLearnerName(event.target.value)} placeholder="Learner name" maxLength={80} required /></label><button className="secondary-button mt-4 w-full" type="submit" disabled={addingLearner}>{addingLearner ? "Adding learner..." : "Add learner"}</button></form> : null}

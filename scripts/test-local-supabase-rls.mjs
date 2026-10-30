@@ -60,6 +60,14 @@ async function createFirstPlan(client, userId, name) {
     .single();
   if (copiedError) throw copiedError;
 
+  const { error: supportError } = await client.rpc("set_task_support_mode", { p_task_id: copiedTask.id, p_support_mode: "with_parent" });
+  if (supportError) throw supportError;
+  const { error: struggleError } = await client.rpc("record_parent_struggle", { p_task_id: copiedTask.id, p_description: "Local RLS observation" });
+  if (struggleError) throw struggleError;
+  const { data: swapRequestId, error: swapError } = await client.rpc("request_task_swap", { p_task_id: copiedTask.id, p_requested_name: "Local replacement" });
+  if (swapError) throw swapError;
+  const { error: rejectSwapError } = await client.rpc("review_task_swap", { p_swap_request_id: swapRequestId, p_approve: false });
+  if (rejectSwapError) throw rejectSwapError;
   const { error: startError } = await client.rpc("start_task", { p_task_id: copiedTask.id });
   if (startError) throw startError;
   const { error: helpError } = await client.rpc("request_task_help", { p_task_id: copiedTask.id });
@@ -70,14 +78,14 @@ async function createFirstPlan(client, userId, name) {
     p_complete: true,
   });
   if (completionError) throw completionError;
-  return { legacyTaskId: task.id, planId, copiedTaskId: copiedTask.id };
+  return { legacyTaskId: task.id, planId, copiedTaskId: copiedTask.id, swapRequestId };
 }
 
 const recordsA = await createFirstPlan(clientA, userA.id, "Auth user A task");
 const recordsB = await createFirstPlan(clientB, userB.id, "Auth user B task");
 
 async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecords, attackerRecords) {
-  for (const table of ["learners", "dashboard_settings", "weekly_plans", "tasks", "xp_events", "task_sessions", "help_requests"]) {
+  for (const table of ["learners", "dashboard_settings", "weekly_plans", "tasks", "xp_events", "task_sessions", "help_requests", "parent_struggle_observations", "task_swap_requests"]) {
     const { data, error } = await attacker.from(table).select("*").eq("user_id", ownerUser.id);
     if (error) throw error;
     if (data.length !== 0) throw new Error(`${attackerUser.email} read ${ownerUser.email} ${table}`);
@@ -113,6 +121,24 @@ async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecord
     p_support_mode: "with_parent",
   });
   if (!supportError) throw new Error("Cross-user support-mode RPC unexpectedly succeeded.");
+
+  const { error: struggleError } = await attacker.rpc("record_parent_struggle", {
+    p_task_id: ownerRecords.copiedTaskId,
+    p_description: "Forbidden observation",
+  });
+  if (!struggleError) throw new Error("Cross-user parent-struggle RPC unexpectedly succeeded.");
+
+  const { error: swapError } = await attacker.rpc("request_task_swap", {
+    p_task_id: ownerRecords.copiedTaskId,
+    p_requested_name: "Forbidden replacement",
+  });
+  if (!swapError) throw new Error("Cross-user task-swap request unexpectedly succeeded.");
+
+  const { error: swapReviewError } = await attacker.rpc("review_task_swap", {
+    p_swap_request_id: ownerRecords.swapRequestId,
+    p_approve: true,
+  });
+  if (!swapReviewError) throw new Error("Cross-user task-swap review unexpectedly succeeded.");
 
   const { error: rewardError } = await attacker.rpc("set_daily_reward", {
     p_weekly_plan_id: ownerRecords.planId,
@@ -154,5 +180,5 @@ await assertCannotAccess(clientA, userA, userB, recordsB, recordsA);
 await assertCannotAccess(clientB, userB, userA, recordsA, recordsB);
 
 console.log("real_auth_sessions|PASS|Two local Auth users signed in with separate access tokens.");
-console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across all dashboard, session, help, and XP records.");
-console.log("symmetric_cross_user_mutations|PASS|Settings, task, session, help, support, reward, rollover, task copy, and XP mutation attempts were rejected in both directions.");
+console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across all dashboard, session, help, struggle, swap, and XP records.");
+console.log("symmetric_cross_user_mutations|PASS|Settings, task, session, help, struggle, swap, support, reward, rollover, task copy, and XP mutation attempts were rejected in both directions.");

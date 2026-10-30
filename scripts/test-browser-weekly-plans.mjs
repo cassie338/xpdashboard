@@ -101,7 +101,38 @@ try {
   await mondayTask.getByRole("button", { name: "Undo Math practice" }).click();
   await mondayTask.getByText("Math", { exact: true }).waitFor();
 
+  await page.getByLabel("Want to choose something else?").selectOption({ label: "Thursday: Fold and put away laundry" });
+  await page.getByRole("button", { name: "Swap this activity" }).click();
+  await page.getByLabel("What do you want to do instead?").fill("Piano");
+  await page.getByRole("button", { name: "Ask my parent" }).click();
+  await page.getByText("Waiting for parent approval:").waitFor();
+  assert(await page.getByRole("button", { name: "Start this task" }).isDisabled(), "A pending swap did not pause the original activity.");
+
   await enterParentView();
+  const swapPanel = page.locator(".paper-panel").filter({ has: page.getByRole("heading", { name: "Swap requests", exact: true }) });
+  await swapPanel.getByText("Fold and put away laundry → Piano", { exact: true }).waitFor();
+  await swapPanel.getByRole("button", { name: "Approve swap" }).click();
+  await swapPanel.getByText("approved", { exact: true }).waitFor();
+
+  await page.getByRole("button", { name: "Learner", exact: true }).click();
+  const pianoTask = page.locator(".day-card").filter({ has: page.getByRole("heading", { name: "Thursday", exact: true }) }).locator(".task-button").filter({ hasText: "Piano" });
+  await pianoTask.waitFor();
+  assert(await page.locator(".day-card .task-button").filter({ hasText: "Fold and put away laundry" }).count() === 0, "Approved swap left the original activity active.");
+  await pianoTask.locator(".task-select-button").click();
+  assert(await page.getByRole("button", { name: "Daily swap used" }).isDisabled(), "Approved replacement could be swapped again on the same day.");
+  await pianoTask.getByRole("button", { name: "Complete Piano" }).click();
+  await celebration.waitFor({ state: "visible" });
+  await celebration.getByRole("button", { name: "Awesome!" }).click();
+  assert(/15\s*\/\s*115 XP/.test(await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText()), "Replacement did not inherit the original XP.");
+  await pianoTask.getByRole("button", { name: "Undo Piano" }).click();
+
+  await enterParentView();
+  const strugglePanel = page.locator(".paper-panel").filter({ has: page.getByRole("heading", { name: "Struggles", exact: true }) });
+  const writingStruggle = strugglePanel.locator(".struggle-task").filter({ hasText: "Write one great paragraph" });
+  await writingStruggle.getByLabel("Struggle noticed for Write one great paragraph").fill("Mixed up the topic sentence and supporting detail.");
+  await writingStruggle.getByRole("button", { name: "Save struggle" }).click();
+  await writingStruggle.getByText("Mixed up the topic sentence and supporting detail.", { exact: true }).waitFor();
+  assert(/0\s*\/\s*115 XP/.test(await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText()), "Saving a parent-reported struggle changed XP.");
   const helpPanel = page.locator(".paper-panel").filter({ has: page.getByRole("heading", { name: "Help requests" }) });
   await helpPanel.getByText("Write one great paragraph", { exact: true }).waitFor();
   await helpPanel.getByRole("button", { name: "Resolved" }).click();

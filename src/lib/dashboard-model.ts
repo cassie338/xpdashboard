@@ -54,6 +54,8 @@ export interface StoredDashboard {
   xpEvents: XPEvent[];
   taskSessions: TaskSession[];
   helpRequests: HelpRequest[];
+  parentStruggles: ParentStruggleObservation[];
+  taskSwapRequests: TaskSwapRequest[];
   legacySickDays: Day[];
 }
 
@@ -71,6 +73,27 @@ export interface HelpRequest {
   status: "requested" | "resolved";
   requestedAt: string;
   resolvedAt: string | null;
+}
+
+export interface ParentStruggleObservation {
+  id: string;
+  taskId: string;
+  category: Category;
+  description: string;
+  provenance: "parent_reported";
+  recordedAt: string;
+}
+
+export interface TaskSwapRequest {
+  id: string;
+  weeklyPlanId: string;
+  originalTaskId: string;
+  replacementTaskId: string | null;
+  day: Day;
+  requestedName: string;
+  status: "pending" | "approved" | "rejected";
+  requestedAt: string;
+  reviewedAt: string | null;
 }
 
 export function tasksForSelection(tasks: Task[], selection: PlanSelection, learnerId: string) {
