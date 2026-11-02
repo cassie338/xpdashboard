@@ -48,6 +48,19 @@ const defaultDashboard: StoredDashboard = {
   legacySickDays: [],
 };
 
+function preferredPlanSelection(plans: WeeklyPlan[]): PlanSelection {
+  const thisWeek = currentWeekStart();
+  const current = plans.find((plan) => plan.weekStart === thisWeek);
+  if (current) return current.id;
+  const nearestUpcoming = [...plans].filter((plan) => plan.weekStart > thisWeek).sort((a, b) => a.weekStart.localeCompare(b.weekStart))[0];
+  return nearestUpcoming?.id ?? plans[0]?.id ?? "legacy";
+}
+
+function planTimingLabel(plan: WeeklyPlan) {
+  if (plan.weekStart === currentWeekStart()) return "Current";
+  return plan.weekStart > currentWeekStart() ? "Upcoming" : "History";
+}
+
 function loadLocalDashboard(): StoredDashboard {
   const current = window.localStorage.getItem(STORAGE_KEY);
   if (current) {
@@ -101,6 +114,8 @@ async function loadLearners(client: SupabaseClient, userId: string): Promise<Lea
 }
 
 async function loadSupabaseDashboard(client: SupabaseClient, userId: string, learnerId: string, importLocal = true): Promise<StoredDashboard> {
+  const { error: finalizeError } = await client.rpc("finalize_past_weekly_plans", { p_current_week_start: currentWeekStart() });
+  if (finalizeError) throw finalizeError;
   const [settingsResult, plansResult, tasksResult, eventsResult, sessionsResult, helpResult, strugglesResult, swapsResult] = await Promise.all([
     client.from("dashboard_settings").select("learner_name, sick_days, initialized").eq("user_id", userId).eq("learner_id", learnerId).maybeSingle(),
     client.from("weekly_plans").select("id, learner_id, week_start, status, sick_days, daily_rewards, created_at, completed_at").eq("user_id", userId).eq("learner_id", learnerId).order("week_start", { ascending: false }),
@@ -284,7 +299,7 @@ export function WeeklyDashboard() {
       setLearners([{ id: "local", displayName: local.learnerName, isDefault: true }]);
       setSelectedLearnerId("local");
       setDashboard(local);
-      setSelectedPlan(local.plans[0]?.id ?? "legacy");
+      setSelectedPlan(preferredPlanSelection(local.plans));
       setReady(true);
     });
     return () => window.cancelAnimationFrame(frame);
@@ -327,7 +342,7 @@ export function WeeklyDashboard() {
           setDashboard(next);
           setSelectedPlan((current) => current === "legacy" && next.plans.length === 0
             ? "legacy"
-            : next.plans.some((plan) => plan.id === current) ? current : next.plans[0]?.id ?? "legacy");
+            : next.plans.some((plan) => plan.id === current) ? current : preferredPlanSelection(next.plans));
           setReady(true);
           setSyncError("");
         }
@@ -401,8 +416,8 @@ export function WeeklyDashboard() {
   const allComplete = selectedTasks.length > 0 && expectedTasksLeft === 0;
   const hasFollowingPlan = plan ? dashboard.plans.some((candidate) => candidate.weekStart === addDays(plan.weekStart, 7)) : dashboard.plans.length > 0;
   const latestPlan = dashboard.plans[0] ?? null;
-  const canStartNextWeek = selectedTasks.length > 0 && !hasFollowingPlan && (
-    selectedPlan === "legacy" ? dashboard.plans.length === 0 : editable && plan?.id === latestPlan?.id
+  const canPlanFollowingWeek = selectedTasks.length > 0 && !hasFollowingPlan && (
+    selectedPlan === "legacy" ? dashboard.plans.length === 0 : plan?.id === latestPlan?.id
   );
   const showDailyProgress = plan?.status === "published" && plan.weekStart === currentWeekStart();
   const rolloverTasks = selectedTasks.filter((task) => !excludedRolloverTasks.has(task.id));
@@ -463,7 +478,7 @@ export function WeeklyDashboard() {
         };
       });
     }
-    if (!complete && !sickDays.includes(task.day)) {
+    if (!complete && plan?.weekStart === currentWeekStart() && task.day === todayDay && !sickDays.includes(task.day)) {
       const otherTasksForDay = selectedTasks.filter((candidate) => candidate.day === task.day && candidate.id !== task.id);
       if (otherTasksForDay.every((candidate) => earnedByTask.has(candidate.id))) setCelebrationDay(task.day);
     }
@@ -690,16 +705,21 @@ export function WeeklyDashboard() {
   }
 
   async function startNextWeek() {
-    if (!canStartNextWeek || rolloverTasks.length === 0) return;
+    if (!canPlanFollowingWeek || rolloverTasks.length === 0) return;
     setRollingOver(true);
     setSyncError("");
     try {
       if (supabase && userId) {
-        const { data, error } = await supabase.rpc("start_next_week", {
-          p_source_plan_id: plan?.id ?? null,
-          p_task_ids: rolloverTasks.map((task) => task.id),
-          p_week_start: nextWeekStart,
-        });
+        const { data, error } = plan
+          ? await supabase.rpc("plan_future_week", {
+            p_source_plan_id: plan.id,
+            p_task_ids: rolloverTasks.map((task) => task.id),
+          })
+          : await supabase.rpc("start_next_week", {
+            p_source_plan_id: null,
+            p_task_ids: rolloverTasks.map((task) => task.id),
+            p_week_start: nextWeekStart,
+          });
         if (error) throw error;
         await reloadRemote(data as string);
       } else {
@@ -712,11 +732,11 @@ export function WeeklyDashboard() {
         } else {
           const newPlanId = crypto.randomUUID();
           const now = new Date().toISOString();
-          const newPlan: WeeklyPlan = { id: newPlanId, learnerId: plan?.learnerId ?? selectedLearnerId ?? "local", weekStart: nextWeekStart, status: "published", sickDays: [...sickDays], dailyRewards: {}, createdAt: now, completedAt: null };
+          const newPlan: WeeklyPlan = { id: newPlanId, learnerId: plan?.learnerId ?? selectedLearnerId ?? "local", weekStart: nextWeekStart, status: "published", sickDays: plan ? [] : [...sickDays], dailyRewards: {}, createdAt: now, completedAt: null };
           const copiedTasks = rolloverTasks.map((task) => ({ ...task, id: crypto.randomUUID(), weeklyPlanId: newPlanId, copiedFromTaskId: task.id, removedAt: null }));
           setDashboard((current) => ({
             ...current,
-            plans: [newPlan, ...current.plans.map((candidate) => plan && candidate.id === plan.id ? { ...candidate, status: "completed" as const, completedAt: now } : candidate)],
+            plans: [newPlan, ...current.plans],
             tasks: [...current.tasks, ...copiedTasks],
           }));
           setSelectedPlan(newPlanId);
@@ -724,7 +744,7 @@ export function WeeklyDashboard() {
         setExcludedRolloverTasks(new Set());
       }
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "Unable to start the next week.");
+      setSyncError(error instanceof Error ? error.message : "Unable to plan the following week.");
     } finally {
       setRollingOver(false);
     }
@@ -797,7 +817,7 @@ export function WeeklyDashboard() {
       <div className="mx-auto max-w-[1400px]">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-xl bg-[var(--ink)] text-xl font-black text-white">XP</div><div><p className="text-xs font-black uppercase tracking-[.22em] text-[var(--muted)]">Weekly effort</p><h1 className="text-2xl font-black tracking-tight">XP Dashboard</h1></div></div>
-          <div className="flex flex-wrap items-center gap-3"><label className="week-picker-label">Learner<select className="week-picker" value={selectedLearnerId ?? ""} onChange={(event) => changeLearner(event.target.value)}>{learners.map((learner) => <option key={learner.id} value={learner.id}>{learner.displayName}</option>)}</select></label><label className="week-picker-label">View week<select className="week-picker" value={selectedPlan} onChange={(event) => changeSelection(event.target.value)}>{dashboard.plans.map((candidate) => <option key={candidate.id} value={candidate.id}>{weekLabel(candidate.weekStart)}{candidate.status === "completed" ? " · History" : " · Current"}</option>)}<option value="legacy">{isFirstPlanSetup ? `${weekLabel()} · Setup` : "Legacy / Unassigned"}</option></select></label><div className="flex rounded-xl border border-[var(--line)] bg-white p-1"><button className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`} onClick={() => setView("learner")}>Learner</button><button className={`mode-button ${view === "parent" ? "mode-button-active" : ""}`} onClick={requestParentView}>Parent</button></div>{supabase ? <button className="text-sm font-black text-[var(--muted)]" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button> : null}</div>
+          <div className="flex flex-wrap items-center gap-3"><label className="week-picker-label">Learner<select className="week-picker" value={selectedLearnerId ?? ""} onChange={(event) => changeLearner(event.target.value)}>{learners.map((learner) => <option key={learner.id} value={learner.id}>{learner.displayName}</option>)}</select></label><label className="week-picker-label">View week<select className="week-picker" value={selectedPlan} onChange={(event) => changeSelection(event.target.value)}>{dashboard.plans.map((candidate) => <option key={candidate.id} value={candidate.id}>{weekLabel(candidate.weekStart)} · {planTimingLabel(candidate)}</option>)}<option value="legacy">{isFirstPlanSetup ? `${weekLabel()} · Setup` : "Legacy / Unassigned"}</option></select></label><div className="flex rounded-xl border border-[var(--line)] bg-white p-1"><button className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`} onClick={() => setView("learner")}>Learner</button><button className={`mode-button ${view === "parent" ? "mode-button-active" : ""}`} onClick={requestParentView}>Parent</button></div>{supabase ? <button className="text-sm font-black text-[var(--muted)]" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button> : null}</div>
         </header>
 
         {syncError ? <p className="mt-4 rounded-xl bg-[#fff0ec] p-3 text-sm font-bold text-[var(--danger)]" role="alert">Sync problem: {syncError}</p> : null}
@@ -867,7 +887,7 @@ export function WeeklyDashboard() {
               {activePlanHelpRequests.length ? <div className="paper-panel"><p className="label">Needs you</p><h2 className="mt-1 text-2xl font-black">Help requests</h2><div className="mt-4 grid gap-3">{activePlanHelpRequests.map((request) => { const task = selectedTasks.find((candidate) => candidate.id === request.taskId); return <div key={request.id} className="help-request-row"><div><strong>{task?.name ?? "Task"}</strong><p>{task?.day} · Requested {new Date(request.requestedAt).toLocaleString()}</p></div><button className="secondary-button" type="button" onClick={() => void resolveHelpRequest(request.id)}>Resolved</button></div>; })}</div></div> : null}
               {supabase ? <form className="paper-panel" onSubmit={addLearner}><p className="label">Family learners</p><h2 className="mt-1 text-2xl font-black">Add another learner</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Each learner gets a separate weekly plan, task history, and XP total under this family login.</p><label className="field-label mt-5">Learner name<input className="field" value={newLearnerName} onChange={(event) => setNewLearnerName(event.target.value)} placeholder="Learner name" maxLength={80} required /></label><button className="secondary-button mt-4 w-full" type="submit" disabled={addingLearner}>{addingLearner ? "Adding learner..." : "Add learner"}</button></form> : null}
               <form className="paper-panel" onSubmit={addTask}><p className="label">Plan the week</p><h2 className="mt-1 text-3xl font-black">Add a task</h2>{editable ? <><label className="field-label mt-6">Task name<input className="field" value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="Read for 20 minutes" maxLength={80} required /></label><div className="mt-4 grid grid-cols-2 gap-3"><label className="field-label">Planned day<select className="field" value={taskDay} onChange={(event) => setTaskDay(event.target.value as Day)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><label className="field-label">XP<input className="field" type="number" min="1" max="500" value={taskXP} onChange={(event) => setTaskXP(Number(event.target.value))} required /></label></div><label className="field-label mt-4">Category<select className="field" value={taskCategory} onChange={(event) => setTaskCategory(event.target.value as Category)}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><button className="primary-button mt-5 w-full" type="submit">Add to the week</button></> : <p className="mt-5 font-bold text-[var(--muted)]">Select the current published week to add tasks.</p>}</form>
-              {canStartNextWeek ? <div className="paper-panel"><p className="label">{plan ? "Rollover" : "First dated plan"}</p><h2 className="mt-1 text-2xl font-black">{plan ? "Start next week" : "Start this week"}</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Copy selected tasks into {weekLabel(nextWeekStart)}. New task IDs and a fresh completion state will be created.</p>{plan ? <div className="mt-4 grid gap-2">{selectedTasks.map((task) => <label key={task.id} className="rollover-task"><input type="checkbox" checked={!excludedRolloverTasks.has(task.id)} onChange={() => toggleRolloverTask(task.id)} /><span><strong>{task.name}</strong><small>{task.day} · {task.xp} XP</small></span></label>)}</div> : <p className="mt-4 rounded-xl bg-[var(--paper)] p-3 text-sm font-bold text-[var(--muted)]">Use the Include controls in the weekly plan, then start the week. After it starts, you can add or remove its task copies.</p>}<button className="primary-button mt-5 w-full" type="button" disabled={rollingOver || rolloverTasks.length === 0} onClick={() => void startNextWeek()}>{rollingOver ? "Starting week..." : plan ? "Start next week" : "Start first weekly plan"}</button></div> : null}
+              {canPlanFollowingWeek ? <div className="paper-panel"><p className="label">{plan ? "Plan ahead" : "First dated plan"}</p><h2 className="mt-1 text-2xl font-black">{plan ? "Plan following week" : "Start this week"}</h2><p className="mt-2 text-sm font-semibold text-[var(--muted)]">Copy selected tasks into {weekLabel(nextWeekStart)} with the same days, XP, order, and support. The current week and its earned XP stay unchanged.</p>{plan ? <div className="mt-4 grid gap-2">{selectedTasks.map((task) => <label key={task.id} className="rollover-task"><input type="checkbox" checked={!excludedRolloverTasks.has(task.id)} onChange={() => toggleRolloverTask(task.id)} /><span><strong>{task.name}</strong><small>{task.day} · {task.xp} XP</small></span></label>)}</div> : <p className="mt-4 rounded-xl bg-[var(--paper)] p-3 text-sm font-bold text-[var(--muted)]">Use the Include controls in the weekly plan, then start the week. After it starts, you can add or remove its task copies.</p>}<button className="primary-button mt-5 w-full" type="button" disabled={rollingOver || rolloverTasks.length === 0} onClick={() => void startNextWeek()}>{rollingOver ? "Planning week..." : plan ? "Plan following week" : "Start first weekly plan"}</button></div> : null}
             </div>
 
             <div className="paper-panel"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="label">Parent controls</p><h2 className="mt-1 text-3xl font-black">Weekly plan</h2></div><span className={`status-badge ${editable ? "status-current" : ""}`}>{isFirstPlanSetup ? "Setup" : selectedPlan === "legacy" ? "Legacy" : plan?.status === "completed" ? "Completed" : "Current"}</span></div><div className="mt-6 grid items-end gap-3 sm:grid-cols-[1fr_auto]"><label className="field-label">Learner name<input className="field" value={dashboard.learnerName} onChange={(event) => setDashboard((current) => ({ ...current, learnerName: event.target.value }))} onBlur={() => void saveLearnerName()} /></label><div className="rounded-xl bg-[var(--paper)] px-4 py-3"><p className="text-xs font-black uppercase tracking-[.12em] text-[var(--muted)]">Goals update automatically</p><p className="mt-1 font-black">{showDailyProgress ? `Today: ${todayPlannedXP} XP · ` : ""}Week: {isFirstPlanSetup ? rolloverTasks.filter((task) => !sickDays.includes(task.day)).reduce((total, task) => total + task.xp, 0) : plannedXP} XP</p></div></div><div className="mt-6 overflow-hidden rounded-xl border border-[var(--line)] bg-white">{DAYS.flatMap((day) => selectedTasks.filter((task) => task.day === day)).map((task) => { const complete = earnedByTask.has(task.id); const included = !excludedRolloverTasks.has(task.id); return <div key={task.id} className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-[var(--line)] p-4 first:border-t-0"><div><strong>{task.name}</strong><p className="mt-1 text-sm font-bold text-[var(--muted)]">{task.day} · {task.category} · {task.xp} XP</p></div>{isFirstPlanSetup ? <button className="remove-button" type="button" onClick={() => toggleRolloverTask(task.id)} aria-pressed={included} aria-label={`${included ? "Exclude" : "Include"} ${task.name}`}>{included ? "Included" : "Excluded"}</button> : editable ? <button className="remove-button" type="button" onClick={() => void removeTask(task.id)} aria-label={complete ? `${task.name} has earned XP` : `Remove ${task.name}`} disabled={complete}>{complete ? "Earned" : "Remove"}</button> : <span className="text-xs font-black uppercase text-[var(--muted)]">Preserved</span>}</div>; })}{!selectedTasks.length ? <p className="p-8 text-center font-bold text-[var(--muted)]">No tasks in this view.</p> : null}</div></div>

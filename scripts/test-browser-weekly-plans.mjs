@@ -1,6 +1,6 @@
 import { chromium } from "playwright-core";
 
-const appUrl = "http://127.0.0.1:3100";
+const appUrl = "http://localhost:3100";
 const browser = await chromium.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true,
@@ -85,8 +85,7 @@ try {
   assert(/25\s*\/\s*115 XP/.test(completedWeeklyText), `Unexpected completion total: ${completedWeeklyText}`);
 
   const celebration = page.locator(".celebration");
-  await celebration.waitFor({ state: "visible" });
-  await celebration.getByRole("button", { name: "Awesome!" }).click();
+  assert(!await celebration.isVisible(), "Completing Wednesday work on another day triggered a daily celebration.");
 
   await firstTask.click();
   await firstTask.getByText("With a parent").waitFor();
@@ -96,8 +95,7 @@ try {
   const mondayTask = page.locator(".day-card").filter({ has: page.getByRole("heading", { name: "Monday", exact: true }) }).locator(".task-button").first();
   await mondayTask.getByRole("button", { name: "Complete Math practice" }).click();
   await mondayTask.getByText("Completed · Tap to undo").waitFor();
-  await celebration.waitFor({ state: "visible" });
-  await celebration.getByRole("button", { name: "Awesome!" }).click();
+  assert(!await celebration.isVisible(), "Completing Monday work on another day triggered a daily celebration.");
   await mondayTask.getByRole("button", { name: "Undo Math practice" }).click();
   await mondayTask.getByText("Math", { exact: true }).waitFor();
 
@@ -121,8 +119,8 @@ try {
   await pianoTask.locator(".task-select-button").click();
   assert(await page.getByRole("button", { name: "Daily swap used" }).isDisabled(), "Approved replacement could be swapped again on the same day.");
   await pianoTask.getByRole("button", { name: "Complete Piano" }).click();
-  await celebration.waitFor({ state: "visible" });
-  await celebration.getByRole("button", { name: "Awesome!" }).click();
+  await pianoTask.getByText("Completed · Tap to undo").waitFor();
+  assert(!await celebration.isVisible(), "Completing Thursday work on another day triggered a daily celebration.");
   assert(/15\s*\/\s*115 XP/.test(await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText()), "Replacement did not inherit the original XP.");
   await pianoTask.getByRole("button", { name: "Undo Piano" }).click();
 
@@ -140,24 +138,38 @@ try {
   const removeWednesdayButton = page.getByRole("button", { name: "Remove Write one great paragraph" });
   await removeWednesdayButton.click();
   await removeWednesdayButton.waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Start next week", exact: true }).click();
+  await page.getByRole("button", { name: "Plan following week", exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll("header select.week-picker")[1]?.querySelectorAll("option").length === 3);
-  const historyOptions = await page.getByLabel("View week").locator("option").allTextContents();
-  assert(historyOptions.length === 3, `Expected current, history, and legacy options, got ${historyOptions.length}.`);
-  assert(historyOptions.filter((option) => option.includes("History")).length === 1, "Expected one historical week.");
+  const plannedOptions = await page.getByLabel("View week").locator("option").allTextContents();
+  assert(plannedOptions.length === 3, `Expected current, upcoming, and legacy options, got ${plannedOptions.length}.`);
+  assert(plannedOptions.filter((option) => option.includes("Current")).length === 1, "Planning ahead closed the current week.");
+  assert(plannedOptions.filter((option) => option.includes("Upcoming")).length === 1, "Expected one upcoming week.");
+  assert(plannedOptions.every((option) => !option.includes("History")), "Planning ahead incorrectly created history.");
 
-  const historyValue = await page.getByLabel("View week").locator("option").evaluateAll((options) => {
-    const history = options.find((option) => option.textContent?.includes("History"));
-    return history?.value;
+  const currentValue = await page.getByLabel("View week").locator("option").evaluateAll((options) => {
+    const current = options.find((option) => option.textContent?.includes("Current"));
+    return current?.value;
   });
-  assert(historyValue, "Historical option had no value.");
-  await page.getByLabel("View week").selectOption(historyValue);
-  await page.getByText("Completed week: This history is read-only.").waitFor();
+  assert(currentValue, "Current option had no value.");
+  await page.getByLabel("View week").selectOption(currentValue);
   await page.getByRole("button", { name: "Learner", exact: true }).click();
-  assert(await page.locator(".task-button").count() === 4 && await page.locator(".task-check-button:disabled").count() === 4, "Removed Wednesday task still appeared in history or controls were not disabled.");
+  assert(await page.locator(".task-button").count() === 4 && await page.locator(".task-check-button:enabled").count() === 4, "Planning ahead changed or locked the current week.");
+
+  await enterParentView();
+  const upcomingValue = await page.getByLabel("View week").locator("option").evaluateAll((options) => {
+    const upcoming = options.find((option) => option.textContent?.includes("Upcoming"));
+    return upcoming?.value;
+  });
+  assert(upcomingValue, "Upcoming option had no value.");
+  await page.getByLabel("View week").selectOption(upcomingValue);
+  await page.getByRole("button", { name: "Plan following week", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll("header select.week-picker")[1]?.querySelectorAll("option").length === 4);
+  const multiWeekOptions = await page.getByLabel("View week").locator("option").allTextContents();
+  assert(multiWeekOptions.filter((option) => option.includes("Upcoming")).length === 2, "A second upcoming week could not be planned.");
 
   await page.getByLabel("View week").selectOption("legacy");
   await page.getByText("Legacy / Unassigned: These records are preserved exactly as they were.").waitFor();
+  await page.getByRole("button", { name: "Learner", exact: true }).click();
   assert(await page.locator(".task-button").count() === 5 && await page.locator(".task-check-button:disabled").count() === 5, "Legacy task controls were not read-only.");
 
   await enterParentView();
@@ -223,9 +235,10 @@ try {
     firstPlanOptions,
     completedWeeklyText: completedWeeklyText.replaceAll("\n", " | "),
     undoneWeeklyText: undoneWeeklyText.replaceAll("\n", " | "),
-    historyOptions,
+    plannedOptions,
+    multiWeekOptions,
     removedWednesdayTask: true,
-    historicalDisabledTasks: 4,
+    currentWeekEditableTasks: 4,
     legacyDisabledTasks: 5,
     learnerProfiles: 2,
     secondLearnerIsolated: true,
