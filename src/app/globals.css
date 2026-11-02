@@ -1,16 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --paper: #f6f1e7;
-  --surface: #fffdf7;
-  --ink: #1c1a20;
-  --muted: #67616c;
-  --line: #c9c0b1;
-  --purple: #6741d9;
-  --lime: #c7f36b;
-  --orange: #ff9f43;
-  --blue: #9cdcff;
-  --danger: #a2392d;
+  --paper: #f7f5fa;
+  --surface: #ffffff;
+  --ink: #251d2b;
+  --muted: #69606f;
+  --line: #ded7e5;
+  --purple: #7735b7;
+  --lime: #f6db03;
+  --orange: #f77500;
+  --blue: #30a6df;
+  --green: #45ae13;
+  --red: #e80118;
+  --danger: #b81425;
+  --brand-gradient: linear-gradient(119deg, #7735b7 1%, #f77500 100%);
 }
 
 * {
@@ -21,9 +24,22 @@ html {
 }
 body {
   margin: 0;
-  background: var(--paper);
+  background:
+    radial-gradient(circle at 0 0, rgb(246 219 3 / 14%), transparent 25rem),
+    radial-gradient(
+      circle at 100% 8rem,
+      rgb(48 166 223 / 11%),
+      transparent 28rem
+    ),
+    var(--paper);
   color: var(--ink);
-  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  font-family: var(--font-dm-sans), Helvetica, Arial, sans-serif;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-dm-serif-display), Georgia, serif;
+  font-weight: 400 !important;
 }
 button,
 input,
@@ -54,6 +70,52 @@ textarea:focus-visible {
   text-transform: uppercase;
   color: var(--muted);
 }
+.app-shell {
+  position: relative;
+}
+.app-header {
+  position: relative;
+  border: 1px solid rgb(119 53 183 / 14%);
+  border-radius: 1.4rem;
+  background: rgb(255 255 255 / 92%);
+  padding: 0.9rem 1rem;
+  box-shadow: 0 12px 35px rgb(63 37 81 / 8%);
+  backdrop-filter: blur(12px);
+}
+.brand-lockup {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: clamp(0.7rem, 2vw, 1rem);
+}
+.brand-school-logo {
+  width: clamp(11.25rem, 18vw, 15rem);
+  height: auto;
+}
+.brand-product {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.08rem;
+  border-left: 1px solid var(--line);
+  padding-left: clamp(0.7rem, 2vw, 1rem);
+  text-align: left;
+}
+.brand-product-name {
+  color: var(--purple);
+  font-family: var(--font-dm-serif-display), Georgia, serif;
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 0.95;
+}
+.brand-product small {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
 .auth-page {
   display: grid;
   min-height: 100vh;
@@ -61,21 +123,37 @@ textarea:focus-visible {
   padding: 1rem;
 }
 .auth-card {
+  position: relative;
+  overflow: hidden;
   width: min(100%, 29rem);
-  border: 1px solid var(--line);
-  border-radius: 1.5rem;
+  border: 0;
+  border-radius: 1.75rem;
   background: var(--surface);
   padding: clamp(1.5rem, 5vw, 2.5rem);
+  box-shadow: 0 24px 70px rgb(63 37 81 / 16%);
+}
+.auth-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0.45rem;
+  background: var(--brand-gradient);
+  content: "";
+}
+.auth-card .brand-lockup {
+  justify-content: center;
+}
+.auth-card .brand-school-logo {
+  width: min(13rem, 53vw);
 }
 .mode-button {
   min-height: 2.55rem;
-  border-radius: 0.75rem;
+  border-radius: 999px;
   padding: 0.55rem 1rem;
   font-weight: 900;
   cursor: pointer;
 }
 .mode-button-active {
-  background: var(--ink);
+  background: var(--purple);
   color: white;
 }
 .week-picker-label {
@@ -91,7 +169,7 @@ textarea:focus-visible {
   min-height: 2.55rem;
   max-width: 15rem;
   border: 1px solid var(--line);
-  border-radius: 0.75rem;
+  border-radius: 999px;
   background: white;
   padding: 0.4rem 0.7rem;
   color: var(--ink);
@@ -101,19 +179,29 @@ textarea:focus-visible {
   text-transform: none;
 }
 .history-notice {
-  border: 1px solid #b9a6ed;
-  border-radius: 1rem;
-  background: #f2edff;
+  border: 1px solid rgb(119 53 183 / 28%);
+  border-radius: 1.25rem;
+  background: #f6f0fb;
   padding: 0.85rem 1rem;
   color: #4d398d;
   font-size: 0.86rem;
 }
 .overview-panel {
+  position: relative;
   display: grid;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 1.5rem;
+  border: 0;
+  border-radius: 1.75rem;
   background: var(--surface);
+  box-shadow: 0 16px 45px rgb(63 37 81 / 9%);
+}
+.overview-panel::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  height: 0.38rem;
+  background: var(--brand-gradient);
+  content: "";
 }
 .reminder-panel {
   padding: clamp(1.25rem, 3vw, 2rem);
@@ -150,7 +238,7 @@ textarea:focus-visible {
   background: var(--orange);
 }
 .progress-fill-weekly {
-  background: var(--purple);
+  background: var(--brand-gradient);
 }
 .week-grid {
   display: grid;
@@ -164,18 +252,18 @@ textarea:focus-visible {
   min-height: 18rem;
   scroll-snap-align: start;
   border: 1px solid var(--line);
-  border-radius: 1.1rem;
+  border-radius: 1.4rem;
   background: var(--surface);
   padding: 1rem;
 }
 .day-card-today {
-  border-color: var(--orange);
-  background: #fffaf0;
-  box-shadow: inset 0 3px 0 var(--orange);
+  border-color: var(--lime);
+  background: #fffdf0;
+  box-shadow: inset 0 4px 0 var(--lime);
 }
 .day-card-cleared {
-  border-color: #a8cf58;
-  background: #f7ffe8;
+  border-color: rgb(69 174 19 / 50%);
+  background: #f3fbea;
 }
 .day-card-sick {
   border-color: #80a8bd;
@@ -184,7 +272,8 @@ textarea:focus-visible {
 }
 .off-badge {
   border-radius: 999px;
-  background: var(--lime);
+  background: var(--green);
+  color: white;
   padding: 0.32rem 0.55rem;
   font-size: 0.68rem;
   font-weight: 900;
@@ -217,7 +306,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 0.65rem;
   border: 1px solid var(--line);
-  border-radius: 0.85rem;
+  border-radius: 1rem;
   background: white;
   padding: 0.75rem;
   cursor: pointer;
@@ -275,15 +364,23 @@ textarea:focus-visible {
 .focus-card {
   display: grid;
   overflow: hidden;
-  border: 2px solid var(--ink);
-  border-radius: 1.5rem;
-  background: var(--lime);
-  box-shadow: 6px 6px 0 var(--ink);
+  border: 0;
+  border-radius: 1.75rem;
+  background: var(--brand-gradient);
+  box-shadow: 0 20px 50px rgb(83 34 119 / 20%);
 }
 .focus-card-main {
+  color: white;
   padding: clamp(1.4rem, 4vw, 2.5rem);
 }
+.focus-card-main h3,
+.focus-card-main > p,
+.focus-card-complete h3,
+.focus-card-complete p {
+  color: white !important;
+}
 .focus-card-complete {
+  color: white;
   padding: clamp(1.4rem, 4vw, 2.5rem);
 }
 .focus-day,
@@ -295,20 +392,21 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 .focus-day {
-  background: var(--ink);
-  color: white;
+  background: var(--lime);
+  color: var(--ink);
 }
 .support-badge {
-  border: 1px solid rgb(28 26 32 / 25%);
-  background: rgb(255 255 255 / 55%);
+  border: 1px solid rgb(255 255 255 / 45%);
+  background: rgb(255 255 255 / 16%);
+  color: white;
 }
 .focus-action {
   min-width: 10rem;
   padding-inline: 1.1rem;
 }
 .focus-progress {
-  border-top: 2px solid var(--ink);
-  background: #efe9ff;
+  border-top: 0;
+  background: #f5effa;
   padding: clamp(1.2rem, 3vw, 2rem);
 }
 .focus-progress .tracker {
@@ -341,7 +439,7 @@ textarea:focus-visible {
 }
 .paper-panel {
   border: 1px solid var(--line);
-  border-radius: 1.25rem;
+  border-radius: 1.5rem;
   background: var(--surface);
   padding: clamp(1.25rem, 3vw, 2rem);
 }
@@ -355,8 +453,8 @@ textarea:focus-visible {
 .field {
   width: 100%;
   min-height: 3.25rem;
-  border: 2px solid var(--ink);
-  border-radius: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
   background: white;
   padding: 0.7rem 0.85rem;
   color: var(--ink);
@@ -365,7 +463,7 @@ textarea:focus-visible {
 .primary-button {
   min-height: 3.4rem;
   border: 0;
-  border-radius: 0.85rem;
+  border-radius: 999px;
   background: var(--purple);
   color: white;
   font-weight: 900;
@@ -373,11 +471,12 @@ textarea:focus-visible {
 }
 .primary-button:hover {
   filter: brightness(1.08);
+  transform: translateY(-1px);
 }
 .secondary-button {
   min-height: 3.4rem;
   border: 1px solid var(--line);
-  border-radius: 0.85rem;
+  border-radius: 999px;
   background: white;
   font-weight: 900;
   cursor: pointer;
@@ -411,8 +510,8 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 .status-current {
-  background: var(--lime);
-  color: var(--ink);
+  background: var(--green);
+  color: white;
 }
 .rollover-task {
   display: grid;
@@ -585,9 +684,9 @@ textarea:focus-visible {
 }
 .lifetime-xp,
 .treasure-box {
-  border: 1px solid var(--line);
-  border-radius: 0.9rem;
-  background: var(--surface);
+  border: 1px solid rgb(119 53 183 / 16%);
+  border-radius: 1rem;
+  background: #fbf9fd;
 }
 .lifetime-xp {
   display: grid;
@@ -625,10 +724,10 @@ textarea:focus-visible {
   display: block;
   width: 2.5rem;
   height: 1.8rem;
-  border: 2px solid var(--ink);
+  border: 2px solid var(--purple);
   border-radius: 0.35rem;
   background: var(--orange);
-  box-shadow: inset 0 -0.45rem 0 #d87928;
+  box-shadow: inset 0 -0.45rem 0 #d85e00;
 }
 .treasure-box-icon::before {
   position: absolute;
@@ -636,9 +735,9 @@ textarea:focus-visible {
   bottom: 100%;
   left: -2px;
   height: 0.7rem;
-  border: 2px solid var(--ink);
+  border: 2px solid var(--purple);
   border-radius: 0.45rem 0.45rem 0.15rem 0.15rem;
-  background: #ffc368;
+  background: var(--lime);
   content: "";
 }
 .treasure-box-icon i {
@@ -649,9 +748,9 @@ textarea:focus-visible {
   width: 0.48rem;
   height: 0.7rem;
   translate: -50% 0;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--purple);
   border-radius: 0.15rem;
-  background: var(--lime);
+  background: var(--green);
 }
 .parent-dashboard {
   display: grid;
@@ -659,10 +758,10 @@ textarea:focus-visible {
 }
 .attention-panel {
   overflow: hidden;
-  border: 2px solid var(--ink);
-  border-radius: 1.2rem;
-  background: #fff5dc;
-  box-shadow: 4px 4px 0 var(--ink);
+  border: 1px solid rgb(247 117 0 / 25%);
+  border-radius: 1.5rem;
+  background: #fff9ed;
+  box-shadow: 0 14px 35px rgb(110 65 26 / 8%);
 }
 .attention-heading {
   display: flex;
@@ -684,12 +783,13 @@ textarea:focus-visible {
   place-items: center;
   border-radius: 999px;
   background: var(--orange);
+  color: white;
   font-weight: 900;
 }
 .attention-grid {
   display: grid;
   gap: 1px;
-  background: #ddcda9;
+  background: #eadcc9;
 }
 .attention-item {
   display: grid;
@@ -729,7 +829,7 @@ textarea:focus-visible {
 .weekly-editor {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 1.25rem;
+  border-radius: 1.5rem;
   background: var(--surface);
 }
 .weekly-editor-heading {
@@ -801,7 +901,7 @@ textarea:focus-visible {
   content: "−";
 }
 .parent-day[open] > summary {
-  background: #faf7f0;
+  background: #faf7fc;
 }
 .parent-day-title {
   display: grid;
@@ -830,8 +930,8 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 .parent-day-flags b:first-child {
-  background: #ffe0a8;
-  color: #744615;
+  background: #ffdfbd;
+  color: #7a3900;
 }
 .parent-day-content {
   display: grid;
@@ -890,8 +990,8 @@ textarea:focus-visible {
   align-items: end;
   justify-content: flex-end;
   gap: 0.6rem;
-  border-top: 1px solid #e5ded3;
-  background: #fcfaf5;
+  border-top: 1px solid var(--line);
+  background: #faf8fc;
   padding: 0.6rem 0.7rem;
 }
 .parent-task-controls label {
@@ -916,8 +1016,8 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 .task-observations {
-  border-top: 1px solid #d8cdef;
-  background: #f7f3ff;
+  border-top: 1px solid rgb(119 53 183 / 20%);
+  background: #f7f2fb;
 }
 .task-observations > summary {
   display: flex;
@@ -988,7 +1088,7 @@ textarea:focus-visible {
 .utility-card {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 1rem;
+  border-radius: 1.25rem;
   background: var(--surface);
 }
 .utility-card > summary {
@@ -1053,13 +1153,14 @@ textarea:focus-visible {
   z-index: 50;
   display: grid;
   place-items: center;
-  background: rgb(28 26 32 / 48%);
+  background: rgb(37 29 43 / 55%);
+  backdrop-filter: blur(4px);
   padding: 1rem;
 }
 .gate-dialog {
   width: min(100%, 25rem);
   border: 1px solid var(--line);
-  border-radius: 1.25rem;
+  border-radius: 1.75rem;
   background: var(--surface);
   padding: 1.5rem;
   box-shadow: 0 24px 70px rgb(28 26 32 / 24%);
@@ -1071,19 +1172,19 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: rgb(246 241 231 / 92%);
+  background: rgb(247 245 250 / 94%);
   padding: 1rem;
 }
 .celebration-card {
   position: relative;
   z-index: 2;
   width: min(100%, 31rem);
-  border: 2px solid var(--ink);
-  border-radius: 1.5rem;
+  border: 0;
+  border-radius: 1.75rem;
   background: var(--surface);
   padding: 2rem;
   text-align: center;
-  box-shadow: 8px 8px 0 var(--ink);
+  box-shadow: 0 26px 80px rgb(83 34 119 / 22%);
   animation: celebration-in 280ms ease-out both;
 }
 .celebration-star {
@@ -1093,9 +1194,24 @@ textarea:focus-visible {
   margin: 0 auto 1.25rem;
   place-items: center;
   border-radius: 1.25rem;
-  background: var(--lime);
+  background: var(--brand-gradient);
+  color: white;
   font-size: 2.5rem;
   rotate: -5deg;
+}
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.app-footer strong {
+  color: var(--purple);
+  font-family: var(--font-dm-serif-display), Georgia, serif;
+  font-size: 1rem;
+  font-style: italic;
+  font-weight: 400;
 }
 .confetti-piece {
   position: absolute;
@@ -1130,12 +1246,43 @@ textarea:focus-visible {
 }
 
 @media (max-width: 640px) {
+  .app-header {
+    padding: 0.8rem;
+  }
+  .brand-lockup {
+    width: 100%;
+  }
+  .brand-school-logo {
+    width: min(11rem, 48vw);
+  }
+  .brand-product-name {
+    font-size: 1.65rem;
+  }
+  .brand-product small {
+    font-size: 0.5rem;
+  }
+  .header-controls {
+    width: 100%;
+  }
+  .header-controls > label {
+    min-width: 0;
+    flex: 1 1 9rem;
+  }
+  .header-controls .week-picker {
+    width: 100%;
+  }
   .week-grid {
     grid-template-columns: repeat(7, minmax(84vw, 1fr));
   }
   .learner-xp-wallet {
     order: 3;
     width: 100%;
+  }
+  .auth-card .brand-school-logo {
+    width: min(11rem, 46vw);
+  }
+  .auth-card .brand-product-name {
+    font-size: 1.5rem;
   }
   .lifetime-xp,
   .treasure-box {
@@ -1162,7 +1309,7 @@ textarea:focus-visible {
   }
   .focus-progress {
     border-top: 0;
-    border-left: 2px solid var(--ink);
+    border-left: 0;
   }
   .attention-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

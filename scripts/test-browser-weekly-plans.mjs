@@ -69,8 +69,12 @@ try {
     .getByRole("button", { name: "Create account", exact: true })
     .click();
   await page
-    .getByRole("heading", { name: "XP Dashboard" })
+    .getByRole("heading", { name: "Anywhere" })
     .waitFor({ timeout: 15000 });
+  await page
+    .getByRole("img", { name: "Vail Valley Unbound" })
+    .waitFor();
+  await page.getByText("Remote learning", { exact: true }).first().waitFor();
 
   await page
     .getByText(

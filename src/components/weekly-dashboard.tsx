@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import Image from "next/image";
 import {
   categories,
   completionEvents,
@@ -37,7 +38,14 @@ type AuthMode = "signin" | "signup";
 
 const STORAGE_KEY = "xp-dashboard-week-v2";
 const LEGACY_STORAGE_KEY = "xp-dashboard-week-v1";
-const confettiColors = ["#6741d9", "#ff9f43", "#c7f36b", "#4ca6d8", "#ff6b7a"];
+const confettiColors = [
+  "#7735b7",
+  "#30a6df",
+  "#45ae13",
+  "#f6db03",
+  "#f77500",
+  "#e80118",
+];
 const sampleTasks: Task[] = [
   {
     id: "math-practice",
@@ -131,6 +139,30 @@ function preferredPlanSelection(plans: WeeklyPlan[]): PlanSelection {
 function planTimingLabel(plan: WeeklyPlan) {
   if (plan.weekStart === currentWeekStart()) return "Current";
   return plan.weekStart > currentWeekStart() ? "Upcoming" : "History";
+}
+
+function BrandLockup({ homeHeading = false }: { homeHeading?: boolean }) {
+  const productName = homeHeading ? (
+    <h1 className="brand-product-name">Anywhere</h1>
+  ) : (
+    <span className="brand-product-name">Anywhere</span>
+  );
+
+  return (
+    <div className="brand-lockup">
+      <Image
+        className="brand-school-logo"
+        src="/vail-valley-unbound-logo.png"
+        width={321}
+        height={90}
+        alt="Vail Valley Unbound"
+      />
+      <div className="brand-product">
+        {productName}
+        <small>Remote learning</small>
+      </div>
+    </div>
+  );
 }
 
 function loadLocalDashboard(): StoredDashboard {
@@ -1538,7 +1570,7 @@ export function WeeklyDashboard() {
     return (
       <main className="auth-page">
         <div className="auth-card text-center">
-          <p className="label">XP Dashboard</p>
+          <BrandLockup />
           <h1 className="mt-2 text-3xl font-black">
             Connecting your family...
           </h1>
@@ -1549,18 +1581,16 @@ export function WeeklyDashboard() {
     return (
       <main className="auth-page">
         <form className="auth-card" onSubmit={submitAuth}>
-          <div className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--ink)] text-xl font-black text-white">
-            XP
-          </div>
-          <p className="label mt-6">Shared family account</p>
+          <BrandLockup />
+          <p className="label mt-8">Shared family account</p>
           <h1 className="mt-2 text-3xl font-black">
             {authMode === "signin"
               ? "Sign in to your week"
               : "Create your family login"}
           </h1>
           <p className="mt-3 text-sm font-semibold text-[var(--muted)]">
-            Use the same login once on your computer and your learner&apos;s
-            computer.
+            Keep learning connected wherever your family goes. Use the same
+            login on parent and learner devices.
           </p>
           <label className="field-label mt-6">
             Email
@@ -1617,7 +1647,7 @@ export function WeeklyDashboard() {
     return (
       <main className="auth-page">
         <div className="auth-card text-center">
-          <p className="label">XP Dashboard</p>
+          <BrandLockup />
           <h1 className="mt-2 text-3xl font-black">Loading your week...</h1>
           {syncError ? (
             <p className="mt-4 font-bold text-[var(--danger)]">{syncError}</p>
@@ -1627,22 +1657,10 @@ export function WeeklyDashboard() {
     );
 
   return (
-    <main className="min-h-screen px-4 py-5 sm:px-7 lg:px-10">
+    <main className="app-shell min-h-screen px-4 py-5 sm:px-7 lg:px-10">
       <div className="mx-auto max-w-[1400px]">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-xl bg-[var(--ink)] text-xl font-black text-white">
-              XP
-            </div>
-            <div>
-              <p className="text-xs font-black uppercase tracking-[.22em] text-[var(--muted)]">
-                Weekly effort
-              </p>
-              <h1 className="text-2xl font-black tracking-tight">
-                XP Dashboard
-              </h1>
-            </div>
-          </div>
+        <header className="app-header flex flex-wrap items-center justify-between gap-4">
+          <BrandLockup homeHeading />
           {view === "learner" ? (
             <div
               className="learner-xp-wallet"
@@ -1666,7 +1684,7 @@ export function WeeklyDashboard() {
               </div>
             </div>
           ) : null}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="header-controls flex flex-wrap items-center gap-3">
             <label className="week-picker-label">
               Learner
               <select
@@ -3440,8 +3458,9 @@ export function WeeklyDashboard() {
           </>
         )}
 
-        <footer className="mt-12 border-t-2 border-[var(--ink)] py-6 text-sm font-bold text-[var(--muted)]">
-          Effort earns XP. Working ahead earns freedom.
+        <footer className="app-footer mt-12 py-6 text-sm font-bold text-[var(--muted)]">
+          <strong>Unbound Anywhere</strong>
+          <span>Effort earns XP. Learning travels with you.</span>
         </footer>
       </div>
       {showParentGate ? (

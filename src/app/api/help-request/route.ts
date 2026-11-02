@@ -58,7 +58,7 @@ export async function POST(request: Request) {
         from,
         to: [to],
         subject: `${learnerName} requested help`,
-        text: `${learnerName} asked for help with: ${taskName}\n\nOpen XP Dashboard and switch to Parent view to respond.`,
+        text: `${learnerName} asked for help with: ${taskName}\n\nOpen Unbound Anywhere and switch to Parent view to respond.`,
       }),
     });
     return Response.json({ helpRequestId, emailed: emailResponse.ok });

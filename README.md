@@ -1,6 +1,6 @@
-# XP Dashboard
+# Unbound Anywhere
 
-A focused weekly effort dashboard for one family. A parent plans Monday-Sunday tasks and assigns XP. The learner can complete any task at any point during the week, and clearing every task assigned to a future day earns that day off.
+Vail Valley Unbound's remote weekly effort dashboard for traveling families. A parent plans Monday-Sunday tasks and assigns XP. The learner can complete any task at any point during the week, and clearing every task assigned to a future day earns that day off.
 
 ## Current prototype
 
