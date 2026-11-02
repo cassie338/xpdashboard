@@ -2,33 +2,53 @@ import { execFileSync } from "node:child_process";
 import { createClient } from "@supabase/supabase-js";
 
 const statusArgs = ["supabase", "status", "-o", "json"];
-if (process.env.SUPABASE_WORKDIR) statusArgs.push("--workdir", process.env.SUPABASE_WORKDIR);
-const status = JSON.parse(execFileSync("npx", statusArgs, { encoding: "utf8" }));
+if (process.env.SUPABASE_WORKDIR)
+  statusArgs.push("--workdir", process.env.SUPABASE_WORKDIR);
+const status = JSON.parse(
+  execFileSync("npx", statusArgs, { encoding: "utf8" }),
+);
 const url = new URL(status.API_URL);
 const expectedPort = process.env.SUPABASE_API_PORT ?? "55321";
-if (!["127.0.0.1", "localhost"].includes(url.hostname) || url.port !== expectedPort) {
+if (
+  !["127.0.0.1", "localhost"].includes(url.hostname) ||
+  url.port !== expectedPort
+) {
   throw new Error(`Refusing non-local Supabase target: ${url.host}`);
 }
 
 const publishableKey = status.PUBLISHABLE_KEY ?? status.ANON_KEY;
 const secretKey = status.SECRET_KEY ?? status.SERVICE_ROLE_KEY;
-if (!publishableKey || !secretKey) throw new Error("Local Supabase keys are unavailable.");
+if (!publishableKey || !secretKey)
+  throw new Error("Local Supabase keys are unavailable.");
 
-const admin = createClient(url.origin, secretKey, { auth: { persistSession: false } });
+const admin = createClient(url.origin, secretKey, {
+  auth: { persistSession: false },
+});
 const password = `Local-only-${crypto.randomUUID()}-A1!`;
 const suffix = crypto.randomUUID();
-const emails = [`rls-a-${suffix}@example.invalid`, `rls-b-${suffix}@example.invalid`];
+const emails = [
+  `rls-a-${suffix}@example.invalid`,
+  `rls-b-${suffix}@example.invalid`,
+];
 
 const users = [];
 for (const email of emails) {
-  const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-  if (error || !data.user) throw error ?? new Error(`Failed to create ${email}`);
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { parent_birthday: "01/02/90" },
+  });
+  if (error || !data.user)
+    throw error ?? new Error(`Failed to create ${email}`);
   users.push(data.user);
 }
 
 const clients = [];
 for (const email of emails) {
-  const client = createClient(url.origin, publishableKey, { auth: { persistSession: false } });
+  const client = createClient(url.origin, publishableKey, {
+    auth: { persistSession: false },
+  });
   const { error } = await client.auth.signInWithPassword({ email, password });
   if (error) throw error;
   clients.push(client);
@@ -37,122 +57,229 @@ for (const email of emails) {
 const [clientA, clientB] = clients;
 const [userA, userB] = users;
 
+for (const [client, user] of [
+  [clientA, userA],
+  [clientB, userB],
+]) {
+  const { data: correctAccess, error: correctAccessError } = await client.rpc(
+    "verify_parent_access",
+    { p_birthday: "01/02/90" },
+  );
+  if (correctAccessError || correctAccess !== true)
+    throw (
+      correctAccessError ?? new Error("Correct parent birthday was rejected.")
+    );
+
+  const { data: wrongAccess, error: wrongAccessError } = await client.rpc(
+    "verify_parent_access",
+    { p_birthday: "01/02/91" },
+  );
+  if (wrongAccessError || wrongAccess !== false)
+    throw (
+      wrongAccessError ?? new Error("Incorrect parent birthday was accepted.")
+    );
+
+  const { data: authUser, error: authUserError } =
+    await admin.auth.admin.getUserById(user.id);
+  if (authUserError) throw authUserError;
+  if (authUser.user.user_metadata.parent_birthday)
+    throw new Error("Parent birthday remained in Auth metadata.");
+
+  const { error: credentialReadError } = await client
+    .from("parent_access_credentials")
+    .select("access_code_hash");
+  if (!credentialReadError)
+    throw new Error("Authenticated client read parent credential hashes.");
+}
+
 async function createFirstPlan(client, userId, name) {
-  const { data: task, error: taskError } = await client.from("tasks").insert({
-    user_id: userId,
-    name,
-    category: "Math",
-    day: "Monday",
-    xp: 15,
-  }).select("id").single();
+  const { data: task, error: taskError } = await client
+    .from("tasks")
+    .insert({
+      user_id: userId,
+      name,
+      category: "Math",
+      day: "Monday",
+      xp: 15,
+    })
+    .select("id")
+    .single();
   if (taskError) throw taskError;
 
-  const { data: planId, error: planError } = await client.rpc("start_next_week", {
-    p_source_plan_id: null,
-    p_task_ids: [task.id],
-    p_week_start: "2030-01-07",
-  });
+  const { data: planId, error: planError } = await client.rpc(
+    "start_next_week",
+    {
+      p_source_plan_id: null,
+      p_task_ids: [task.id],
+      p_week_start: "2030-01-07",
+    },
+  );
   if (planError) throw planError;
 
-  const { data: copiedTask, error: copiedError } = await client.from("tasks")
+  const { data: copiedTask, error: copiedError } = await client
+    .from("tasks")
     .select("id")
     .eq("weekly_plan_id", planId)
     .single();
   if (copiedError) throw copiedError;
 
-  const { error: supportError } = await client.rpc("set_task_support_mode", { p_task_id: copiedTask.id, p_support_mode: "with_parent" });
+  const { error: supportError } = await client.rpc("set_task_support_mode", {
+    p_task_id: copiedTask.id,
+    p_support_mode: "with_parent",
+  });
   if (supportError) throw supportError;
-  const { error: struggleError } = await client.rpc("record_parent_struggle", { p_task_id: copiedTask.id, p_description: "Local RLS observation" });
+  const { error: struggleError } = await client.rpc("record_parent_struggle", {
+    p_task_id: copiedTask.id,
+    p_description: "Local RLS observation",
+  });
   if (struggleError) throw struggleError;
-  const { data: swapRequestId, error: swapError } = await client.rpc("request_task_swap", { p_task_id: copiedTask.id, p_requested_name: "Local replacement" });
+  const { data: swapRequestId, error: swapError } = await client.rpc(
+    "request_task_swap",
+    { p_task_id: copiedTask.id, p_requested_name: "Local replacement" },
+  );
   if (swapError) throw swapError;
-  const { error: rejectSwapError } = await client.rpc("review_task_swap", { p_swap_request_id: swapRequestId, p_approve: false });
+  const { error: rejectSwapError } = await client.rpc("review_task_swap", {
+    p_swap_request_id: swapRequestId,
+    p_approve: false,
+  });
   if (rejectSwapError) throw rejectSwapError;
-  const { error: startError } = await client.rpc("start_task", { p_task_id: copiedTask.id });
+  const { error: startError } = await client.rpc("start_task", {
+    p_task_id: copiedTask.id,
+  });
   if (startError) throw startError;
-  const { error: helpError } = await client.rpc("request_task_help", { p_task_id: copiedTask.id });
+  const { error: helpError } = await client.rpc("request_task_help", {
+    p_task_id: copiedTask.id,
+  });
   if (helpError) throw helpError;
 
-  const { error: completionError } = await client.rpc("record_task_completion", {
-    p_task_id: copiedTask.id,
-    p_complete: true,
-  });
+  const { error: completionError } = await client.rpc(
+    "record_task_completion",
+    {
+      p_task_id: copiedTask.id,
+      p_complete: true,
+    },
+  );
   if (completionError) throw completionError;
-  return { legacyTaskId: task.id, planId, copiedTaskId: copiedTask.id, swapRequestId };
+  return {
+    legacyTaskId: task.id,
+    planId,
+    copiedTaskId: copiedTask.id,
+    swapRequestId,
+  };
 }
 
 const recordsA = await createFirstPlan(clientA, userA.id, "Auth user A task");
 const recordsB = await createFirstPlan(clientB, userB.id, "Auth user B task");
 
-async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecords, attackerRecords) {
-  for (const table of ["learners", "dashboard_settings", "weekly_plans", "tasks", "xp_events", "task_sessions", "help_requests", "parent_struggle_observations", "task_swap_requests"]) {
-    const { data, error } = await attacker.from(table).select("*").eq("user_id", ownerUser.id);
+async function assertCannotAccess(
+  attacker,
+  attackerUser,
+  ownerUser,
+  ownerRecords,
+  attackerRecords,
+) {
+  for (const table of [
+    "learners",
+    "dashboard_settings",
+    "weekly_plans",
+    "tasks",
+    "xp_events",
+    "task_sessions",
+    "help_requests",
+    "parent_struggle_observations",
+    "task_swap_requests",
+  ]) {
+    const { data, error } = await attacker
+      .from(table)
+      .select("*")
+      .eq("user_id", ownerUser.id);
     if (error) throw error;
-    if (data.length !== 0) throw new Error(`${attackerUser.email} read ${ownerUser.email} ${table}`);
+    if (data.length !== 0)
+      throw new Error(`${attackerUser.email} read ${ownerUser.email} ${table}`);
   }
 
-  const { data: settingsUpdate, error: settingsError } = await attacker.from("dashboard_settings")
+  const { data: settingsUpdate, error: settingsError } = await attacker
+    .from("dashboard_settings")
     .update({ learner_name: "Forbidden" })
     .eq("user_id", ownerUser.id)
     .select("user_id");
   if (settingsError) throw settingsError;
-  if (settingsUpdate.length !== 0) throw new Error("Cross-user settings update changed a row.");
+  if (settingsUpdate.length !== 0)
+    throw new Error("Cross-user settings update changed a row.");
 
-  const { data: deletedTasks, error: deleteError } = await attacker.from("tasks")
+  const { data: deletedTasks, error: deleteError } = await attacker
+    .from("tasks")
     .delete()
     .eq("id", ownerRecords.legacyTaskId)
     .select("id");
   if (deleteError) throw deleteError;
-  if (deletedTasks.length !== 0) throw new Error("Cross-user task delete changed a row.");
+  if (deletedTasks.length !== 0)
+    throw new Error("Cross-user task delete changed a row.");
 
-  const { error: completionError } = await attacker.rpc("record_task_completion", {
-    p_task_id: ownerRecords.copiedTaskId,
-    p_complete: false,
-  });
-  if (!completionError) throw new Error("Cross-user completion RPC unexpectedly succeeded.");
+  const { error: completionError } = await attacker.rpc(
+    "record_task_completion",
+    {
+      p_task_id: ownerRecords.copiedTaskId,
+      p_complete: false,
+    },
+  );
+  if (!completionError)
+    throw new Error("Cross-user completion RPC unexpectedly succeeded.");
 
   for (const rpc of ["start_task", "request_task_help"]) {
-    const { error } = await attacker.rpc(rpc, { p_task_id: ownerRecords.copiedTaskId });
-    if (!error) throw new Error(`Cross-user ${rpc} RPC unexpectedly succeeded.`);
+    const { error } = await attacker.rpc(rpc, {
+      p_task_id: ownerRecords.copiedTaskId,
+    });
+    if (!error)
+      throw new Error(`Cross-user ${rpc} RPC unexpectedly succeeded.`);
   }
 
   const { error: supportError } = await attacker.rpc("set_task_support_mode", {
     p_task_id: ownerRecords.copiedTaskId,
     p_support_mode: "with_parent",
   });
-  if (!supportError) throw new Error("Cross-user support-mode RPC unexpectedly succeeded.");
+  if (!supportError)
+    throw new Error("Cross-user support-mode RPC unexpectedly succeeded.");
 
-  const { error: struggleError } = await attacker.rpc("record_parent_struggle", {
-    p_task_id: ownerRecords.copiedTaskId,
-    p_description: "Forbidden observation",
-  });
-  if (!struggleError) throw new Error("Cross-user parent-struggle RPC unexpectedly succeeded.");
+  const { error: struggleError } = await attacker.rpc(
+    "record_parent_struggle",
+    {
+      p_task_id: ownerRecords.copiedTaskId,
+      p_description: "Forbidden observation",
+    },
+  );
+  if (!struggleError)
+    throw new Error("Cross-user parent-struggle RPC unexpectedly succeeded.");
 
   const { error: swapError } = await attacker.rpc("request_task_swap", {
     p_task_id: ownerRecords.copiedTaskId,
     p_requested_name: "Forbidden replacement",
   });
-  if (!swapError) throw new Error("Cross-user task-swap request unexpectedly succeeded.");
+  if (!swapError)
+    throw new Error("Cross-user task-swap request unexpectedly succeeded.");
 
   const { error: swapReviewError } = await attacker.rpc("review_task_swap", {
     p_swap_request_id: ownerRecords.swapRequestId,
     p_approve: true,
   });
-  if (!swapReviewError) throw new Error("Cross-user task-swap review unexpectedly succeeded.");
+  if (!swapReviewError)
+    throw new Error("Cross-user task-swap review unexpectedly succeeded.");
 
   const { error: rewardError } = await attacker.rpc("set_daily_reward", {
     p_weekly_plan_id: ownerRecords.planId,
     p_day: "Monday",
     p_reward: "Forbidden reward",
   });
-  if (!rewardError) throw new Error("Cross-user daily-reward RPC unexpectedly succeeded.");
+  if (!rewardError)
+    throw new Error("Cross-user daily-reward RPC unexpectedly succeeded.");
 
   const { error: rolloverError } = await attacker.rpc("start_next_week", {
     p_source_plan_id: ownerRecords.planId,
     p_task_ids: [ownerRecords.copiedTaskId],
     p_week_start: "2030-01-14",
   });
-  if (!rolloverError) throw new Error("Cross-user rollover RPC unexpectedly succeeded.");
+  if (!rolloverError)
+    throw new Error("Cross-user rollover RPC unexpectedly succeeded.");
 
   const { error: copiedSourceError } = await attacker.from("tasks").insert({
     user_id: attackerUser.id,
@@ -163,22 +290,53 @@ async function assertCannotAccess(attacker, attackerUser, ownerUser, ownerRecord
     day: "Tuesday",
     xp: 10,
   });
-  if (!copiedSourceError) throw new Error("Cross-user copied_from_task_id unexpectedly succeeded.");
+  if (!copiedSourceError)
+    throw new Error("Cross-user copied_from_task_id unexpectedly succeeded.");
 
-  const { error: xpUpdateError } = await attacker.from("xp_events")
+  const { error: xpUpdateError } = await attacker
+    .from("xp_events")
     .update({ amount: 999 })
     .eq("user_id", ownerUser.id);
-  if (!xpUpdateError) throw new Error("Cross-user XP update unexpectedly succeeded.");
+  if (!xpUpdateError)
+    throw new Error("Cross-user XP update unexpectedly succeeded.");
 
-  const { error: xpDeleteError } = await attacker.from("xp_events")
+  const { error: xpDeleteError } = await attacker
+    .from("xp_events")
     .delete()
     .eq("user_id", ownerUser.id);
-  if (!xpDeleteError) throw new Error("Cross-user XP delete unexpectedly succeeded.");
+  if (!xpDeleteError)
+    throw new Error("Cross-user XP delete unexpectedly succeeded.");
 }
 
 await assertCannotAccess(clientA, userA, userB, recordsB, recordsA);
 await assertCannotAccess(clientB, userB, userA, recordsA, recordsB);
 
-console.log("real_auth_sessions|PASS|Two local Auth users signed in with separate access tokens.");
-console.log("symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across all dashboard, session, help, struggle, swap, and XP records.");
-console.log("symmetric_cross_user_mutations|PASS|Settings, task, session, help, struggle, swap, support, reward, rollover, task copy, and XP mutation attempts were rejected in both directions.");
+for (let attempt = 0; attempt < 4; attempt += 1) {
+  const { data, error } = await clientA.rpc("verify_parent_access", {
+    p_birthday: "01/02/91",
+  });
+  if (error || data !== false)
+    throw error ?? new Error("Incorrect parent birthday bypassed throttling.");
+}
+const { data: lockedAccess, error: lockedAccessError } = await clientA.rpc(
+  "verify_parent_access",
+  { p_birthday: "01/02/90" },
+);
+if (lockedAccessError || lockedAccess !== false)
+  throw (
+    lockedAccessError ??
+    new Error("Parent access was not locked after five failures.")
+  );
+
+console.log(
+  "real_auth_sessions|PASS|Two local Auth users signed in with separate access tokens.",
+);
+console.log(
+  "parent_access|PASS|Birthdays are hashed, removed from Auth metadata, hidden from clients, verified server-side, and throttled after repeated failures.",
+);
+console.log(
+  "symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across all dashboard, session, help, struggle, swap, and XP records.",
+);
+console.log(
+  "symmetric_cross_user_mutations|PASS|Settings, task, session, help, struggle, swap, support, reward, rollover, task copy, and XP mutation attempts were rejected in both directions.",
+);

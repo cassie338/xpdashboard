@@ -32,6 +32,10 @@ import {
   weekLabel,
 } from "@/lib/week";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  formatParentBirthday,
+  isValidParentBirthday,
+} from "@/lib/parent-access";
 
 type View = "learner" | "parent";
 type AuthMode = "signin" | "signup";
@@ -499,6 +503,7 @@ export function WeeklyDashboard() {
   const [showParentGate, setShowParentGate] = useState(false);
   const [parentAnswer, setParentAnswer] = useState("");
   const [parentGateError, setParentGateError] = useState(false);
+  const [parentGateChecking, setParentGateChecking] = useState(false);
   const [dashboard, setDashboard] = useState<StoredDashboard>(defaultDashboard);
   const [ready, setReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(!supabase);
@@ -510,6 +515,7 @@ export function WeeklyDashboard() {
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [parentBirthday, setParentBirthday] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [syncError, setSyncError] = useState("");
   const [rollingOver, setRollingOver] = useState(false);
@@ -1534,11 +1540,18 @@ export function WeeklyDashboard() {
     event.preventDefault();
     if (!supabase) return;
     setAuthMessage("");
+    if (authMode === "signup" && !isValidParentBirthday(parentBirthday)) {
+      setAuthMessage("Enter a valid parent birthday in MM/DD/YY format.");
+      return;
+    }
     const result =
       authMode === "signup"
         ? await supabase.auth.signUp({
             email: authEmail.trim(),
             password: authPassword,
+            options: {
+              data: { parent_birthday: parentBirthday },
+            },
           })
         : await supabase.auth.signInWithPassword({
             email: authEmail.trim(),
@@ -1558,9 +1571,24 @@ export function WeeklyDashboard() {
     setShowParentGate(true);
   }
 
-  function submitParentGate(event: React.FormEvent<HTMLFormElement>) {
+  async function submitParentGate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (parentAnswer.trim() !== "1987") return setParentGateError(true);
+    if (!isValidParentBirthday(parentAnswer)) {
+      setParentGateError(true);
+      return;
+    }
+    if (supabase) {
+      setParentGateChecking(true);
+      setParentGateError(false);
+      const { data, error } = await supabase.rpc("verify_parent_access", {
+        p_birthday: parentAnswer,
+      });
+      setParentGateChecking(false);
+      if (error || data !== true) {
+        setParentGateError(true);
+        return;
+      }
+    }
     setView("parent");
     setShowParentGate(false);
     setParentAnswer("");
@@ -1617,6 +1645,29 @@ export function WeeklyDashboard() {
               required
             />
           </label>
+          {authMode === "signup" ? (
+            <label className="field-label mt-4">
+              Parent birthday
+              <input
+                className="field"
+                type="text"
+                inputMode="numeric"
+                autoComplete="bday"
+                placeholder="MM/DD/YY"
+                pattern="(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{2}"
+                maxLength={8}
+                value={parentBirthday}
+                onChange={(event) =>
+                  setParentBirthday(formatParentBirthday(event.target.value))
+                }
+                aria-describedby="parent-birthday-help"
+                required
+              />
+              <small id="parent-birthday-help">
+                Used only to open the Parent dashboard.
+              </small>
+            </label>
+          ) : null}
           {authMessage ? (
             <p
               className="mt-4 rounded-xl bg-[var(--paper)] p-3 text-sm font-bold"
@@ -1634,6 +1685,7 @@ export function WeeklyDashboard() {
             onClick={() => {
               setAuthMode(authMode === "signin" ? "signup" : "signin");
               setAuthMessage("");
+              setParentBirthday("");
             }}
           >
             {authMode === "signin"
@@ -3488,19 +3540,20 @@ export function WeeklyDashboard() {
           >
             <p className="label">Parent check</p>
             <h2 id="parent-gate-title" className="mt-2 text-2xl font-black">
-              What is your birthyear?
+              Enter the parent birthday
             </h2>
             <label className="field-label mt-5">
-              Birth year
+              Parent birthday
               <input
                 className="field"
                 type="password"
                 inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={4}
+                placeholder="MM/DD/YY"
+                pattern="(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{2}"
+                maxLength={8}
                 value={parentAnswer}
                 onChange={(event) => {
-                  setParentAnswer(event.target.value);
+                  setParentAnswer(formatParentBirthday(event.target.value));
                   setParentGateError(false);
                 }}
                 autoFocus
@@ -3523,8 +3576,12 @@ export function WeeklyDashboard() {
               >
                 Cancel
               </button>
-              <button className="primary-button" type="submit">
-                Continue
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={parentGateChecking}
+              >
+                {parentGateChecking ? "Checking..." : "Continue"}
               </button>
             </div>
           </form>

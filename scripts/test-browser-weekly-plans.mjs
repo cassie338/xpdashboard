@@ -13,6 +13,8 @@ const page = await context.newPage();
 const consoleErrors = [];
 const forbiddenRequests = [];
 const httpErrors = [];
+const parentBirthday = "01/02/90";
+let testedParentGateFailure = false;
 
 page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
@@ -33,8 +35,18 @@ function assert(condition, message) {
 
 async function enterParentView() {
   await page.getByRole("button", { name: "Parent", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "What is your birthyear?" });
-  await dialog.getByLabel("Birth year").fill("1987");
+  const dialog = page.getByRole("dialog", {
+    name: "Enter the parent birthday",
+  });
+  if (!testedParentGateFailure) {
+    await dialog.getByLabel("Parent birthday").fill("01/02/91");
+    await dialog.getByRole("button", { name: "Continue" }).click();
+    await dialog
+      .getByText("That answer is not correct.", { exact: true })
+      .waitFor();
+    testedParentGateFailure = true;
+  }
+  await dialog.getByLabel("Parent birthday").fill(parentBirthday);
   await dialog.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("heading", { name: "Weekly plan" }).waitFor();
 }
@@ -86,6 +98,7 @@ try {
   await page
     .getByLabel("Password")
     .fill(`Local-only-${crypto.randomUUID()}-A1!`);
+  await page.getByLabel("Parent birthday").fill(parentBirthday);
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();
