@@ -104,6 +104,35 @@ export function eventsForSelection(events: XPEvent[], selection: PlanSelection, 
   return events.filter((event) => event.learnerId === learnerId && (selection === "legacy" ? event.weeklyPlanId === null : event.weeklyPlanId === selection));
 }
 
+export function taskLineageIds(tasks: Task[], taskId: string) {
+  const lineage = new Set([taskId]);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const task of tasks) {
+      if (
+        lineage.has(task.id) &&
+        task.copiedFromTaskId &&
+        !lineage.has(task.copiedFromTaskId)
+      ) {
+        lineage.add(task.copiedFromTaskId);
+        changed = true;
+      }
+      if (
+        task.copiedFromTaskId &&
+        lineage.has(task.copiedFromTaskId) &&
+        !lineage.has(task.id)
+      ) {
+        lineage.add(task.id);
+        changed = true;
+      }
+    }
+  }
+
+  return lineage;
+}
+
 export function completionEvents(events: XPEvent[]) {
   const balances = new Map<string, number>();
   const earned = new Map<string, XPEvent>();

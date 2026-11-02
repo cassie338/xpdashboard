@@ -6,6 +6,7 @@ import {
   categories,
   completionEvents,
   eventsForSelection,
+  taskLineageIds,
   tasksForSelection,
   xpTotal,
   type Category,
@@ -2318,10 +2319,14 @@ export function WeeklyDashboard() {
                                 const included = !excludedRolloverTasks.has(
                                   task.id,
                                 );
+                                const lineageIds = taskLineageIds(
+                                  dashboard.tasks,
+                                  task.id,
+                                );
                                 const observations =
                                   dashboard.parentStruggles.filter(
                                     (observation) =>
-                                      observation.taskId === task.id,
+                                      lineageIds.has(observation.taskId),
                                   );
                                 return (
                                   <article
@@ -2445,10 +2450,18 @@ export function WeeklyDashboard() {
                                     {task.supportMode === "with_parent" ? (
                                       <details className="task-observations">
                                         <summary>
-                                          Observations
-                                          {observations.length
-                                            ? ` (${observations.length})`
-                                            : ""}
+                                          <span>
+                                            <strong>
+                                              {editable
+                                                ? "Add parent feedback"
+                                                : "Parent feedback"}
+                                            </strong>
+                                            <small>
+                                              {observations.length
+                                                ? `${observations.length} in running log`
+                                                : "Record what you noticed while working together"}
+                                            </small>
+                                          </span>
                                         </summary>
                                         {editable ? (
                                           <form
@@ -2465,35 +2478,55 @@ export function WeeklyDashboard() {
                                               <textarea
                                                 className="field struggle-field"
                                                 name="description"
-                                                aria-label={`Struggle noticed for ${task.name}`}
-                                                placeholder="Describe what was difficult or the error you noticed"
+                                                aria-label={`Parent feedback for ${task.name}`}
+                                                placeholder="Describe what you noticed, what helped, or what was difficult"
                                                 maxLength={1000}
                                                 required
                                               />
                                             </label>
                                             <button
-                                              className="secondary-button"
+                                              className="primary-button"
                                               type="submit"
                                             >
-                                              Save observation
+                                              Save parent feedback
                                             </button>
                                           </form>
                                         ) : null}
                                         <div className="observation-list">
-                                          {observations.map((observation) => (
-                                            <div
-                                              key={observation.id}
-                                              className="struggle-observation"
-                                            >
-                                              <p>{observation.description}</p>
-                                              <small>
-                                                Parent reported ·{" "}
-                                                {new Date(
-                                                  observation.recordedAt,
-                                                ).toLocaleString()}
-                                              </small>
-                                            </div>
-                                          ))}
+                                          {observations.map((observation) => {
+                                            const observedTask =
+                                              dashboard.tasks.find(
+                                                (candidate) =>
+                                                  candidate.id ===
+                                                  observation.taskId,
+                                              );
+                                            const observedPlan =
+                                              dashboard.plans.find(
+                                                (candidate) =>
+                                                  candidate.id ===
+                                                  observedTask?.weeklyPlanId,
+                                              );
+                                            return (
+                                              <div
+                                                key={observation.id}
+                                                className="struggle-observation"
+                                              >
+                                                <p>{observation.description}</p>
+                                                <small>
+                                                  Parent reported ·{" "}
+                                                  {observedPlan
+                                                    ? weekLabel(
+                                                        observedPlan.weekStart,
+                                                      )
+                                                    : "Legacy / Unassigned"}
+                                                  {" · "}
+                                                  {new Date(
+                                                    observation.recordedAt,
+                                                  ).toLocaleString()}
+                                                </small>
+                                              </div>
+                                            );
+                                          })}
                                           {!observations.length ? (
                                             <p className="empty-note">
                                               No observations recorded.
@@ -2676,6 +2709,55 @@ export function WeeklyDashboard() {
                               ? "Plan following week"
                               : "Start first weekly plan"}
                         </button>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  {dashboard.parentStruggles.length ? (
+                    <details className="utility-card parent-feedback-log">
+                      <summary>
+                        <span>
+                          <small>Running academic log</small>
+                          <strong>
+                            Parent feedback ({dashboard.parentStruggles.length})
+                          </strong>
+                        </span>
+                      </summary>
+                      <div className="utility-content observation-list">
+                        <p className="utility-copy">
+                          Parent-reported notes carry across weeks. They do not
+                          change XP or establish mastery.
+                        </p>
+                        {dashboard.parentStruggles.map((observation) => {
+                          const observedTask = dashboard.tasks.find(
+                            (task) => task.id === observation.taskId,
+                          );
+                          const observedPlan = dashboard.plans.find(
+                            (candidate) =>
+                              candidate.id === observedTask?.weeklyPlanId,
+                          );
+                          return (
+                            <article
+                              key={observation.id}
+                              className="struggle-observation feedback-log-entry"
+                            >
+                              <h3>{observedTask?.name ?? "Preserved task"}</h3>
+                              <p>{observation.description}</p>
+                              <small>
+                                Parent reported · {observation.category}
+                                {observedTask ? ` · ${observedTask.day}` : ""}
+                                {" · "}
+                                {observedPlan
+                                  ? weekLabel(observedPlan.weekStart)
+                                  : "Legacy / Unassigned"}
+                                {" · "}
+                                {new Date(
+                                  observation.recordedAt,
+                                ).toLocaleString()}
+                              </small>
+                            </article>
+                          );
+                        })}
                       </div>
                     </details>
                   ) : null}

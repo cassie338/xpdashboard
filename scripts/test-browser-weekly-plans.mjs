@@ -273,12 +273,15 @@ try {
   const writingStruggle = parentWednesday
     .locator(".parent-task-row")
     .filter({ hasText: "Write one great paragraph" });
+  await writingStruggle
+    .getByText("Add parent feedback", { exact: true })
+    .waitFor();
   await writingStruggle.locator(".task-observations > summary").click();
   await writingStruggle
-    .getByLabel("Struggle noticed for Write one great paragraph")
+    .getByLabel("Parent feedback for Write one great paragraph")
     .fill("Mixed up the topic sentence and supporting detail.");
   await writingStruggle
-    .getByRole("button", { name: "Save observation" })
+    .getByRole("button", { name: "Save parent feedback" })
     .click();
   await writingStruggle
     .getByText("Mixed up the topic sentence and supporting detail.", {
@@ -291,6 +294,34 @@ try {
     ),
     "Saving a parent-reported struggle changed XP.",
   );
+  const parentTuesday = page
+    .locator(".parent-day")
+    .filter({ hasText: "Tuesday" });
+  if (!(await parentTuesday.evaluate((element) => element.open)))
+    await parentTuesday.locator(":scope > summary").click();
+  const readingFeedback = parentTuesday
+    .locator(".parent-task-row")
+    .filter({ hasText: "Read for 20 minutes" });
+  await readingFeedback.locator(".support-select").selectOption("with_parent");
+  await readingFeedback
+    .getByText("Add parent feedback", { exact: true })
+    .waitFor();
+  await readingFeedback.locator(".task-observations > summary").click();
+  await readingFeedback
+    .getByLabel("Parent feedback for Read for 20 minutes")
+    .fill("Retelling the page aloud helped connect the main ideas.");
+  await readingFeedback
+    .getByRole("button", { name: "Save parent feedback" })
+    .click();
+  const feedbackLog = page
+    .locator(".utility-card")
+    .filter({ hasText: "Parent feedback (2)" });
+  await feedbackLog.locator("summary").click();
+  await feedbackLog
+    .getByText("Retelling the page aloud helped connect the main ideas.", {
+      exact: true,
+    })
+    .waitFor();
   const helpPanel = page.locator(".attention-panel");
   await helpPanel
     .getByText("Write one great paragraph", { exact: true })
@@ -369,6 +400,23 @@ try {
     });
   assert(upcomingValue, "Upcoming option had no value.");
   await page.getByLabel("View week").selectOption(upcomingValue);
+  const upcomingTuesday = page
+    .locator(".parent-day")
+    .filter({ hasText: "Tuesday" });
+  if (!(await upcomingTuesday.evaluate((element) => element.open)))
+    await upcomingTuesday.locator(":scope > summary").click();
+  const upcomingReading = upcomingTuesday
+    .locator(".parent-task-row")
+    .filter({ hasText: "Read for 20 minutes" });
+  await upcomingReading
+    .getByText("1 in running log", { exact: true })
+    .waitFor();
+  await upcomingReading.locator(".task-observations > summary").click();
+  await upcomingReading
+    .getByText("Retelling the page aloud helped connect the main ideas.", {
+      exact: true,
+    })
+    .waitFor();
   const nextPlanAhead = page
     .locator(".utility-card")
     .filter({ hasText: "Plan following week" });
@@ -450,6 +498,7 @@ try {
   await page.getByRole("button", { name: "Start this task" }).click();
   await page.getByRole("button", { name: "I finished it" }).click();
   await secondLearnerTask.getByText("Completed · Tap to undo").waitFor();
+  await verifyCelebrationDate("Monday");
   assert(
     /20\s*\/\s*20 XP/.test(
       await page.locator(".tracker").filter({ hasText: "Weekly" }).innerText(),

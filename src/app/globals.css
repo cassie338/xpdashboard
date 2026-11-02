@@ -920,16 +920,47 @@ textarea:focus-visible {
   background: #f7f3ff;
 }
 .task-observations > summary {
-  padding: 0.65rem 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.8rem;
   color: var(--purple);
-  font-size: 0.75rem;
-  font-weight: 900;
 }
 .task-observations > summary::before {
-  content: "+ ";
+  display: grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.45rem;
+  background: var(--purple);
+  color: white;
+  font-size: 1rem;
+  font-weight: 900;
+  content: "+";
 }
 .task-observations[open] > summary::before {
-  content: "− ";
+  content: "−";
+}
+.task-observations > summary span {
+  display: grid;
+  gap: 0.1rem;
+}
+.task-observations > summary strong {
+  font-size: 0.82rem;
+}
+.task-observations > summary small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+.feedback-log-entry h3 {
+  margin-bottom: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+.feedback-log-entry small {
+  line-height: 1.45;
 }
 .observation-form,
 .observation-list {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completionEvents, eventsForSelection, tasksForSelection, xpTotal, type Task, type XPEvent } from "./dashboard-model";
+import { completionEvents, eventsForSelection, taskLineageIds, tasksForSelection, xpTotal, type Task, type XPEvent } from "./dashboard-model";
 
 const tasks: Task[] = [
   { id: "legacy", learnerId: "learner-one", weeklyPlanId: null, copiedFromTaskId: null, removedAt: null, name: "Legacy", category: "Math", day: "Monday", xp: 20, position: 0, supportMode: "independent" },
@@ -43,5 +43,14 @@ describe("weekly plan isolation", () => {
     expect(tasksForSelection(tasks, "plan-two", "learner-one").map((task) => task.id)).toEqual(["week-two"]);
     expect(xpTotal(eventsForSelection(events, "plan-two", "learner-one"))).toBe(20);
     expect(xpTotal(eventsForSelection(events, "plan-two", "learner-two"))).toBe(100);
+  });
+
+  it("follows a copied task across every week in its lineage", () => {
+    expect([...taskLineageIds(tasks, "week-two")]).toEqual([
+      "week-two",
+      "week-one",
+      "legacy",
+    ]);
+    expect(taskLineageIds(tasks, "week-two").has("sibling-task")).toBe(false);
   });
 });
