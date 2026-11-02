@@ -1847,7 +1847,7 @@ export function WeeklyDashboard() {
                     <span className="support-badge">
                       {focusedTask.supportMode === "with_parent"
                         ? "Do with a parent"
-                        : "Try it independently"}
+                        : "Independent work"}
                     </span>
                   </div>
                   <p className="mt-5 text-sm font-black uppercase tracking-[.16em] text-[var(--muted)]">
@@ -2109,12 +2109,20 @@ export function WeeklyDashboard() {
                                   {task.name}
                                 </strong>
                                 <small className="mt-1 block font-bold text-[var(--muted)]">
-                                  {complete
-                                    ? "Completed · Tap to undo"
-                                    : task.supportMode === "with_parent"
-                                      ? "With a parent"
-                                      : task.category}
+                                  {task.category}
                                 </small>
+                                <small
+                                  className={`task-support-mode task-support-${task.supportMode}`}
+                                >
+                                  {task.supportMode === "with_parent"
+                                    ? "Do with a parent"
+                                    : "Independent work"}
+                                </small>
+                                {complete ? (
+                                  <small className="task-completion-label">
+                                    Completed · Tap to undo
+                                  </small>
+                                ) : null}
                               </span>
                               <span className="whitespace-nowrap font-black text-[var(--purple)]">
                                 +{task.xp}

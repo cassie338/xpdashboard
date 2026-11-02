@@ -478,8 +478,31 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: white;
+  color: var(--ink);
   font-weight: 900;
   cursor: pointer;
+}
+.focus-card-main .secondary-button {
+  color: var(--purple);
+}
+.task-support-mode,
+.task-completion-label {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+.task-support-mode {
+  color: var(--purple);
+}
+.task-support-with_parent {
+  color: #b45100;
+}
+.task-completion-label {
+  color: var(--green);
 }
 .text-button {
   border-bottom: 2px solid var(--ink);

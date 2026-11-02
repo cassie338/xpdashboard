@@ -71,9 +71,7 @@ try {
   await page
     .getByRole("heading", { name: "Anywhere" })
     .waitFor({ timeout: 15000 });
-  await page
-    .getByRole("img", { name: "Vail Valley Unbound" })
-    .waitFor();
+  await page.getByRole("img", { name: "Vail Valley Unbound" }).waitFor();
   await page.getByText("Remote learning", { exact: true }).first().waitFor();
 
   await page
@@ -156,8 +154,30 @@ try {
   await page
     .getByRole("heading", { name: "Write one great paragraph", exact: true })
     .waitFor();
-  await page.getByText("Do with a parent", { exact: true }).waitFor();
+  await page
+    .locator(".focus-card .support-badge")
+    .filter({ hasText: "Do with a parent" })
+    .waitFor();
   await page.getByText("Choose tonight's family game").last().waitFor();
+  const helpButton = page.getByRole("button", { name: "I need help" });
+  const helpButtonColors = await helpButton.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { color: style.color, backgroundColor: style.backgroundColor };
+  });
+  assert(
+    helpButtonColors.color !== helpButtonColors.backgroundColor,
+    `Secondary learner button had unreadable text: ${JSON.stringify(helpButtonColors)}`,
+  );
+  const independentMondayTask = page
+    .locator(".day-card")
+    .filter({
+      has: page.getByRole("heading", { name: "Monday", exact: true }),
+    })
+    .locator(".task-button")
+    .first();
+  await independentMondayTask
+    .getByText("Independent work", { exact: true })
+    .waitFor();
   await page.getByRole("button", { name: "Start with my parent" }).click();
   await page.getByRole("button", { name: "I need help" }).click();
   await page
@@ -184,8 +204,13 @@ try {
 
   await verifyCelebrationDate("Wednesday");
 
-  await firstTask.click();
-  await firstTask.getByText("With a parent").waitFor();
+  await firstTask
+    .getByRole("button", { name: "Undo Write one great paragraph" })
+    .click();
+  await firstTask
+    .getByText("Completed · Tap to undo", { exact: true })
+    .waitFor({ state: "detached" });
+  await firstTask.getByText("Do with a parent", { exact: true }).waitFor();
   const undoneWeeklyText = await page
     .locator(".tracker")
     .filter({ hasText: "Weekly" })
