@@ -249,7 +249,9 @@ textarea:focus-visible {
   scroll-snap-type: x mandatory;
 }
 .day-card {
+  min-width: 0;
   min-height: 18rem;
+  overflow: hidden;
   scroll-snap-align: start;
   border: 1px solid var(--line);
   border-radius: 1.4rem;
@@ -302,6 +304,8 @@ textarea:focus-visible {
 .task-button {
   display: flex;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 5rem;
   align-items: center;
   gap: 0.65rem;
@@ -345,7 +349,15 @@ textarea:focus-visible {
   flex: 1;
   align-items: center;
   gap: 0.65rem;
+  overflow: hidden;
   cursor: pointer;
+}
+.task-select-button > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.task-select-button > span:last-child {
+  flex: 0 0 auto;
 }
 .task-select-button:disabled {
   cursor: default;

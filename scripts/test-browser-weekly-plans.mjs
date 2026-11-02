@@ -55,6 +55,27 @@ async function verifyCelebrationDate(day) {
   }
 }
 
+async function assertTaskCardsContained(viewport) {
+  const overflowingTaskCards = await page.evaluate(() =>
+    [...document.querySelectorAll(".day-card")].flatMap((dayCard) => {
+      const dayRect = dayCard.getBoundingClientRect();
+      return [...dayCard.querySelectorAll(".task-button")]
+        .filter((taskCard) => {
+          const taskRect = taskCard.getBoundingClientRect();
+          return (
+            taskRect.left < dayRect.left - 1 ||
+            taskRect.right > dayRect.right + 1
+          );
+        })
+        .map((taskCard) => taskCard.textContent?.trim() ?? "Unknown task");
+    }),
+  );
+  assert(
+    overflowingTaskCards.length === 0,
+    `${viewport} task cards exceeded their day columns: ${JSON.stringify(overflowingTaskCards)}`,
+  );
+}
+
 try {
   await page.goto(appUrl, { waitUntil: "networkidle" });
   await page
@@ -553,6 +574,7 @@ try {
     )
     .waitFor();
 
+  await assertTaskCardsContained("Desktop");
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileMetrics = await page.evaluate(() => {
     const grid = document.querySelector(".week-grid");
@@ -586,6 +608,7 @@ try {
     mobileMetrics.taskHeight >= 44 && mobileMetrics.taskWidth >= 44,
     `Mobile tap target was too small: ${JSON.stringify(mobileMetrics)}`,
   );
+  await assertTaskCardsContained("Mobile");
 
   await page.screenshot({
     path: "/var/folders/8j/c8ymmxss3h11g4fs8yl9tccc0000gn/T/opencode/weekly-plans-mobile.png",
