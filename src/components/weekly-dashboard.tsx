@@ -10,6 +10,7 @@ import {
   taskLineageIds,
   tasksForSelection,
   xpTotal,
+  type AssessmentSourceFile,
   type Category,
   type LearnerProfile,
   type ParentStruggleObservation,
@@ -39,6 +40,108 @@ import {
 
 type View = "learner" | "parent";
 type AuthMode = "signin" | "signup";
+type ParentSection =
+  | "overview"
+  | "weekly-planning"
+  | "learner-profile"
+  | "academics"
+  | "quest-builder";
+
+type LearnerRecord = {
+  profile: {
+    date_of_birth: string | null;
+    educational_level: string;
+    interests: string;
+    learning_preferences: string;
+    observed_strengths: string;
+    observed_challenges: string;
+    motivators: string;
+    helpful_approaches: string;
+    additional_notes: string;
+  } | null;
+  assessments: Array<{
+    id: string;
+    source_file_id: string;
+    assessment_name: string;
+    provider: string;
+    subject: string;
+    assessment_date: string | null;
+    processing_status: "uploaded" | "processing" | "ready_for_review" | "approved" | "failed";
+    processing_error: string | null;
+    updated_at: string;
+    processing_retry_available: boolean;
+  }>;
+  extractions: Array<{
+    id: string;
+    assessment_id: string;
+    review_status: "draft" | "approved" | "rejected";
+  }>;
+  findings: Array<{
+    id: string;
+    extraction_id: string;
+    assessment_id: string;
+    skill_name: string;
+    domain: string;
+    original_provider_result: string;
+    provider_reported_status: string;
+    tested_state: "tested" | "not_tested" | "unclear";
+    ai_interpretation: string;
+    supporting_evidence: string;
+    proposed_status: "mastered" | "developing" | "not_yet_demonstrated" | "needs_verification" | "not_assessed";
+    confidence: "low" | "medium" | "high";
+    parent_correction: string | null;
+    parent_status_override: string | null;
+    parent_approved: boolean;
+  }>;
+  observations: Array<{
+    id: string;
+    observation_date: string;
+    subject: string;
+    observation_text: string;
+    related_skill: string;
+    provenance: "parent_reported";
+  }>;
+  priorities: Array<{
+    id: string;
+    title: string;
+    subject: string;
+    notes: string;
+    active: boolean;
+  }>;
+  summaries: Array<{
+    id: string;
+    version: number;
+    status: "draft" | "approved" | "superseded" | "failed";
+    learner_overview: string;
+    strengths: string;
+    developing_skills: string;
+    learning_patterns: string;
+    areas_to_investigate: string;
+    teaching_recommendations: string;
+    parent_context: string;
+    created_at: string;
+  }>;
+};
+
+const emptyProfileDraft = {
+  dateOfBirth: "",
+  educationalLevel: "",
+  interests: "",
+  learningPreferences: "",
+  observedStrengths: "",
+  observedChallenges: "",
+  motivators: "",
+  helpfulApproaches: "",
+  additionalNotes: "",
+};
+
+const parentSections: Array<{ id: ParentSection; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "weekly-planning", label: "Weekly Planning" },
+  { id: "learner-profile", label: "Learner Profile" },
+  { id: "academics", label: "Academics" },
+  { id: "quest-builder", label: "Quest Builder" },
+];
 
 const STORAGE_KEY = "xp-dashboard-week-v2";
 const LEGACY_STORAGE_KEY = "xp-dashboard-week-v1";
@@ -126,6 +229,7 @@ const defaultDashboard: StoredDashboard = {
   taskSessions: [],
   helpRequests: [],
   parentStruggles: [],
+  assessmentSources: [],
   taskSwapRequests: [],
   legacySickDays: [],
 };
@@ -143,6 +247,11 @@ function preferredPlanSelection(plans: WeeklyPlan[]): PlanSelection {
 function planTimingLabel(plan: WeeklyPlan) {
   if (plan.weekStart === currentWeekStart()) return "Current";
   return plan.weekStart > currentWeekStart() ? "Upcoming" : "History";
+}
+
+function formatFileSize(byteSize: number) {
+  if (byteSize < 1024 * 1024) return `${Math.ceil(byteSize / 1024)} KB`;
+  return `${(byteSize / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function BrandLockup({ homeHeading = false }: { homeHeading?: boolean }) {
@@ -195,6 +304,7 @@ function loadLocalDashboard(): StoredDashboard {
         taskSessions: parsed.taskSessions ?? [],
         helpRequests: parsed.helpRequests ?? [],
         parentStruggles: parsed.parentStruggles ?? [],
+        assessmentSources: parsed.assessmentSources ?? [],
         taskSwapRequests: parsed.taskSwapRequests ?? [],
       };
     } catch {
@@ -237,6 +347,7 @@ function loadLocalDashboard(): StoredDashboard {
       taskSessions: [],
       helpRequests: [],
       parentStruggles: [],
+      assessmentSources: [],
       taskSwapRequests: [],
     };
   } catch {
@@ -258,6 +369,28 @@ async function loadLearners(
     id: learner.id,
     displayName: learner.display_name,
     isDefault: learner.is_default,
+  }));
+}
+
+async function loadAssessmentSources(
+  client: SupabaseClient,
+  parentToken: string,
+  learnerId: string,
+): Promise<AssessmentSourceFile[]> {
+  const { data, error } = await client.rpc("list_assessment_sources", {
+    p_parent_token: parentToken,
+    p_learner_id: learnerId,
+  });
+  if (error) throw error;
+  return (data ?? []).map((source: Record<string, unknown>) => ({
+    id: source.id as string,
+    learnerId: source.learner_id as string,
+    sourceLabel: source.source_label as string,
+    assessmentDate: source.assessment_date as string | null,
+    originalFilename: source.original_filename as string,
+    contentType: source.content_type as AssessmentSourceFile["contentType"],
+    byteSize: source.byte_size as number,
+    uploadedAt: source.uploaded_at as string,
   }));
 }
 
@@ -434,6 +567,7 @@ async function loadSupabaseDashboard(
         observation.provenance as ParentStruggleObservation["provenance"],
       recordedAt: observation.recorded_at,
     })),
+    assessmentSources: [],
     taskSwapRequests: (swapsResult.data ?? []).map((request) => ({
       id: request.id,
       weeklyPlanId: request.weekly_plan_id,
@@ -495,6 +629,8 @@ function ProgressTracker({
 export function WeeklyDashboard() {
   const supabase = getSupabaseBrowserClient();
   const [view, setView] = useState<View>("learner");
+  const [parentSection, setParentSection] =
+    useState<ParentSection>("overview");
   const [selectedPlan, setSelectedPlan] = useState<PlanSelection>("legacy");
   const [excludedRolloverTasks, setExcludedRolloverTasks] = useState<
     Set<string>
@@ -504,6 +640,10 @@ export function WeeklyDashboard() {
   const [parentAnswer, setParentAnswer] = useState("");
   const [parentGateError, setParentGateError] = useState(false);
   const [parentGateChecking, setParentGateChecking] = useState(false);
+  const [parentAccessToken, setParentAccessToken] = useState<string | null>(null);
+  const [parentSessionExpiresAt, setParentSessionExpiresAt] = useState<
+    number | null
+  >(null);
   const [dashboard, setDashboard] = useState<StoredDashboard>(defaultDashboard);
   const [ready, setReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(!supabase);
@@ -531,6 +671,27 @@ export function WeeklyDashboard() {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [newLearnerName, setNewLearnerName] = useState("");
   const [addingLearner, setAddingLearner] = useState(false);
+  const [assessmentSourceLabel, setAssessmentSourceLabel] = useState("");
+  const [assessmentDate, setAssessmentDate] = useState("");
+  const [assessmentUploadMessage, setAssessmentUploadMessage] = useState("");
+  const [assessmentSourcesError, setAssessmentSourcesError] = useState("");
+  const [uploadingAssessment, setUploadingAssessment] = useState(false);
+  const [downloadingAssessmentId, setDownloadingAssessmentId] = useState<
+    string | null
+  >(null);
+  const [learnerRecord, setLearnerRecord] = useState<LearnerRecord | null>(null);
+  const [profileDraft, setProfileDraft] = useState(emptyProfileDraft);
+  const [profileRecordError, setProfileRecordError] = useState("");
+  const [profileActionMessage, setProfileActionMessage] = useState("");
+  const [profileActionId, setProfileActionId] = useState<string | null>(null);
+  const [findingEdits, setFindingEdits] = useState<
+    Record<string, { correction: string; statusOverride: string }>
+  >({});
+  const [observationText, setObservationText] = useState("");
+  const [observationSubject, setObservationSubject] = useState("");
+  const [observationSkill, setObservationSkill] = useState("");
+  const [priorityTitle, setPriorityTitle] = useState("");
+  const [prioritySubject, setPrioritySubject] = useState("");
 
   useEffect(() => {
     if (supabase) {
@@ -549,6 +710,12 @@ export function WeeklyDashboard() {
           window.requestAnimationFrame(() => {
             setUserId(session?.user.id ?? null);
             setReady(false);
+            setView("learner");
+            setParentSection("overview");
+            setParentAccessToken(null);
+            setParentSessionExpiresAt(null);
+            setLearnerRecord(null);
+            setProfileDraft(emptyProfileDraft);
             if (!session) {
               setLearners([]);
               setSelectedLearnerId(null);
@@ -571,6 +738,78 @@ export function WeeklyDashboard() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [supabase]);
+
+  useEffect(() => {
+    if (!parentSessionExpiresAt) return;
+    const delay = Math.max(0, parentSessionExpiresAt - Date.now());
+    const timeout = window.setTimeout(() => {
+      setParentAccessToken(null);
+      setParentSessionExpiresAt(null);
+      setLearnerRecord(null);
+      setProfileDraft(emptyProfileDraft);
+      setView("learner");
+    }, delay);
+    return () => window.clearTimeout(timeout);
+  }, [parentSessionExpiresAt]);
+
+  useEffect(() => {
+    if (!supabase || !parentAccessToken || !selectedLearnerId || view !== "parent") {
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) return;
+      try {
+        const response = await fetch(
+          `/api/learner-profile?learnerId=${encodeURIComponent(selectedLearnerId)}`,
+          {
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              "x-parent-access-token": parentAccessToken,
+            },
+          },
+        );
+        const result = (await response.json()) as LearnerRecord & { error?: string };
+        if (!response.ok) throw new Error(result.error ?? "The learner profile could not be loaded.");
+        if (!active) return;
+        setLearnerRecord(result);
+        setProfileDraft({
+          dateOfBirth: result.profile?.date_of_birth ?? "",
+          educationalLevel: result.profile?.educational_level ?? "",
+          interests: result.profile?.interests ?? "",
+          learningPreferences: result.profile?.learning_preferences ?? "",
+          observedStrengths: result.profile?.observed_strengths ?? "",
+          observedChallenges: result.profile?.observed_challenges ?? "",
+          motivators: result.profile?.motivators ?? "",
+          helpfulApproaches: result.profile?.helpful_approaches ?? "",
+          additionalNotes: result.profile?.additional_notes ?? "",
+        });
+        setFindingEdits(
+          Object.fromEntries(
+            result.findings.map((finding) => [
+              finding.id,
+              {
+                correction: finding.parent_correction ?? "",
+                statusOverride: finding.parent_status_override ?? "",
+              },
+            ]),
+          ),
+        );
+        setProfileRecordError("");
+      } catch (error) {
+        if (active)
+          setProfileRecordError(
+            error instanceof Error ? error.message : "The learner profile could not be loaded.",
+          );
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [parentAccessToken, selectedLearnerId, supabase, view]);
 
   useEffect(() => {
     if (!supabase || !userId) return;
@@ -629,8 +868,23 @@ export function WeeklyDashboard() {
           userId,
           selectedLearnerId,
         );
+        let assessmentSources: AssessmentSourceFile[] = [];
+        let assessmentSourceLoadError = "";
+        if (parentAccessToken) {
+          try {
+            assessmentSources = await loadAssessmentSources(
+              client,
+              parentAccessToken,
+              selectedLearnerId,
+            );
+          } catch {
+            assessmentSourceLoadError =
+              "Stored report sources are temporarily unavailable. No records were removed.";
+          }
+        }
         if (active) {
-          setDashboard(next);
+          setDashboard({ ...next, assessmentSources });
+          setAssessmentSourcesError(assessmentSourceLoadError);
           setSelectedPlan((current) => {
             if (isInitialLoad) {
               return current === "legacy" && next.plans.length === 0
@@ -745,7 +999,7 @@ export function WeeklyDashboard() {
       active = false;
       void client.removeChannel(channel);
     };
-  }, [supabase, userId, selectedLearnerId]);
+  }, [supabase, userId, selectedLearnerId, parentAccessToken]);
 
   useEffect(() => {
     if (ready && !supabase)
@@ -760,7 +1014,22 @@ export function WeeklyDashboard() {
       selectedLearnerId,
       false,
     );
-    setDashboard(next);
+    let assessmentSources: AssessmentSourceFile[] = [];
+    let assessmentSourceLoadError = "";
+    if (parentAccessToken) {
+      try {
+        assessmentSources = await loadAssessmentSources(
+          supabase,
+          parentAccessToken,
+          selectedLearnerId,
+        );
+      } catch {
+        assessmentSourceLoadError =
+          "Stored report sources are temporarily unavailable. No records were removed.";
+      }
+    }
+    setDashboard({ ...next, assessmentSources });
+    setAssessmentSourcesError(assessmentSourceLoadError);
     if (preferredPlan) setSelectedPlan(preferredPlan);
     setSyncError("");
   }
@@ -770,6 +1039,10 @@ export function WeeklyDashboard() {
       ? null
       : (dashboard.plans.find((candidate) => candidate.id === selectedPlan) ??
         null);
+  const approvedAcademicFindings =
+    learnerRecord?.findings.filter((finding) => finding.parent_approved) ?? [];
+  const approvedAcademicSummary =
+    learnerRecord?.summaries.find((summary) => summary.status === "approved") ?? null;
   const isFirstPlanSetup =
     selectedPlan === "legacy" && dashboard.plans.length === 0;
   const selectedTasks = tasksForSelection(
@@ -916,6 +1189,12 @@ export function WeeklyDashboard() {
     setExcludedRolloverTasks(new Set());
     setCelebrationDay(null);
     setShowSwapForm(false);
+    setAssessmentSourceLabel("");
+    setAssessmentDate("");
+    setAssessmentUploadMessage("");
+    setAssessmentSourcesError("");
+    setLearnerRecord(null);
+    setProfileDraft(emptyProfileDraft);
     setSelectedLearnerId(learnerId);
   }
 
@@ -1580,18 +1859,357 @@ export function WeeklyDashboard() {
     if (supabase) {
       setParentGateChecking(true);
       setParentGateError(false);
-      const { data, error } = await supabase.rpc("verify_parent_access", {
+      const { data, error } = await supabase.rpc("open_parent_access_session", {
         p_birthday: parentAnswer,
       });
       setParentGateChecking(false);
-      if (error || data !== true) {
+      if (error || typeof data !== "string") {
         setParentGateError(true);
         return;
       }
+      setParentAccessToken(data);
+      setParentSessionExpiresAt(Date.now() + 30 * 60 * 1000);
+      setAssessmentSourcesError("");
     }
+    setParentSection("overview");
     setView("parent");
     setShowParentGate(false);
     setParentAnswer("");
+  }
+
+  async function parentApiFetch(path: string, init: RequestInit = {}) {
+    if (!supabase || !parentAccessToken) throw new Error("Reopen Parent view to continue.");
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) throw new Error("Sign in again to continue.");
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${accessToken}`);
+    headers.set("x-parent-access-token", parentAccessToken);
+    if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
+    const response = await fetch(path, { ...init, headers });
+    if (response.status === 401 || response.status === 403) {
+      setParentAccessToken(null);
+      setParentSessionExpiresAt(null);
+      setLearnerRecord(null);
+      setProfileDraft(emptyProfileDraft);
+      setView("learner");
+    }
+    return response;
+  }
+
+  async function refreshLearnerRecord() {
+    if (!selectedLearnerId) return;
+    const response = await parentApiFetch(
+      `/api/learner-profile?learnerId=${encodeURIComponent(selectedLearnerId)}`,
+    );
+    const result = (await response.json()) as LearnerRecord & { error?: string };
+    if (!response.ok) throw new Error(result.error ?? "The learner profile could not be loaded.");
+    setLearnerRecord(result);
+    setProfileDraft({
+      dateOfBirth: result.profile?.date_of_birth ?? "",
+      educationalLevel: result.profile?.educational_level ?? "",
+      interests: result.profile?.interests ?? "",
+      learningPreferences: result.profile?.learning_preferences ?? "",
+      observedStrengths: result.profile?.observed_strengths ?? "",
+      observedChallenges: result.profile?.observed_challenges ?? "",
+      motivators: result.profile?.motivators ?? "",
+      helpfulApproaches: result.profile?.helpful_approaches ?? "",
+      additionalNotes: result.profile?.additional_notes ?? "",
+    });
+    setFindingEdits(
+      Object.fromEntries(
+        result.findings.map((finding) => [
+          finding.id,
+          {
+            correction: finding.parent_correction ?? "",
+            statusOverride: finding.parent_status_override ?? "",
+          },
+        ]),
+      ),
+    );
+  }
+
+  async function saveLearnerProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedLearnerId) return;
+    setProfileActionId("profile");
+    setProfileActionMessage("");
+    try {
+      const response = await parentApiFetch(
+        `/api/learner-profile?learnerId=${encodeURIComponent(selectedLearnerId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...profileDraft,
+            dateOfBirth: profileDraft.dateOfBirth || null,
+          }),
+        },
+      );
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The profile could not be saved.");
+      setProfileActionMessage("About this learner was saved as parent-provided context.");
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : "The profile could not be saved.");
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function addProfileRecord(kind: "observation" | "priority") {
+    if (!selectedLearnerId) return;
+    setProfileActionId(kind);
+    setProfileActionMessage("");
+    try {
+      const body =
+        kind === "observation"
+          ? {
+              kind,
+              learnerId: selectedLearnerId,
+              observationDate: new Date().toISOString().slice(0, 10),
+              subject: observationSubject,
+              observationText,
+              relatedSkill: observationSkill,
+              assessmentId: null,
+            }
+          : {
+              kind,
+              learnerId: selectedLearnerId,
+              title: priorityTitle,
+              subject: prioritySubject,
+              notes: "",
+            };
+      const response = await parentApiFetch("/api/learner-profile/records", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? `The ${kind} could not be saved.`);
+      if (kind === "observation") {
+        setObservationText("");
+        setObservationSubject("");
+        setObservationSkill("");
+      } else {
+        setPriorityTitle("");
+        setPrioritySubject("");
+      }
+      setProfileActionMessage(`${kind === "observation" ? "Observation" : "Priority"} saved.`);
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : `The ${kind} could not be saved.`);
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function processAssessment(assessmentId: string) {
+    setProfileActionId(assessmentId);
+    setProfileActionMessage("");
+    try {
+      const response = await parentApiFetch("/api/learner-profile/assessments/process", {
+        method: "POST",
+        body: JSON.stringify({ assessmentId }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The assessment could not be processed.");
+      setProfileActionMessage("A validated draft is ready for parent review.");
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : "The assessment could not be processed.");
+      await refreshLearnerRecord().catch(() => undefined);
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function approveAssessment(assessmentId: string, extractionId: string) {
+    const findings = learnerRecord?.findings.filter(
+      (finding) => finding.assessment_id === assessmentId && finding.extraction_id === extractionId,
+    ) ?? [];
+    setProfileActionId(assessmentId);
+    setProfileActionMessage("");
+    try {
+      const response = await parentApiFetch("/api/learner-profile/assessments/review", {
+        method: "POST",
+        body: JSON.stringify({
+          assessmentId,
+          extractionId,
+          findings: findings.map((finding) => ({
+            id: finding.id,
+            correction: findingEdits[finding.id]?.correction ?? "",
+            statusOverride: findingEdits[finding.id]?.statusOverride || null,
+          })),
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The review could not be approved.");
+      setProfileActionMessage("Assessment findings approved. Academics now shows their evidence and provenance.");
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : "The review could not be approved.");
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function updatePriority(priorityId: string, active: boolean) {
+    if (!selectedLearnerId) return;
+    setProfileActionId(priorityId);
+    try {
+      const response = await parentApiFetch("/api/learner-profile/records", {
+        method: "PATCH",
+        body: JSON.stringify({ learnerId: selectedLearnerId, priorityId, active }),
+      });
+      if (!response.ok) {
+        const result = (await response.json()) as { error?: string };
+        throw new Error(result.error ?? "The priority could not be updated.");
+      }
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : "The priority could not be updated.");
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function generateProfileSummary() {
+    if (!selectedLearnerId) return;
+    setProfileActionId("summary");
+    setProfileActionMessage("");
+    try {
+      const response = await parentApiFetch("/api/learner-profile/summary", {
+        method: "POST",
+        body: JSON.stringify({ learnerId: selectedLearnerId }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The summary could not be generated.");
+      setProfileActionMessage("A new evidence-backed summary draft is ready for review.");
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : "The summary could not be generated.");
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function approveProfileSummary(summaryId: string) {
+    if (!selectedLearnerId) return;
+    setProfileActionId(summaryId);
+    try {
+      const response = await parentApiFetch("/api/learner-profile/summary", {
+        method: "PATCH",
+        body: JSON.stringify({ learnerId: selectedLearnerId, summaryId }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The summary could not be approved.");
+      setProfileActionMessage("Summary approved. The prior approved version remains in history.");
+      await refreshLearnerRecord();
+    } catch (error) {
+      setProfileActionMessage(error instanceof Error ? error.message : "The summary could not be approved.");
+    } finally {
+      setProfileActionId(null);
+    }
+  }
+
+  async function uploadAssessmentSource(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    if (!supabase || !selectedLearnerId || !parentAccessToken) {
+      setAssessmentUploadMessage("Reopen Parent view to upload a report.");
+      return;
+    }
+
+    setUploadingAssessment(true);
+    setAssessmentUploadMessage("");
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    formData.set("learnerId", selectedLearnerId);
+    formData.set("sourceLabel", assessmentSourceLabel);
+    formData.set("assessmentDate", assessmentDate);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setUploadingAssessment(false);
+      setAssessmentUploadMessage("Sign in again before uploading a report.");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/assessment-sources", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "x-parent-access-token": parentAccessToken,
+        },
+        body: formData,
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          setParentAccessToken(null);
+          setParentSessionExpiresAt(null);
+          setView("learner");
+        }
+        setAssessmentUploadMessage(result.error ?? "The report could not be uploaded.");
+        return;
+      }
+      form.reset();
+      setAssessmentSourceLabel("");
+      setAssessmentDate("");
+      setAssessmentUploadMessage(
+        "Report stored as an unprocessed source. No academic status or XP changed.",
+      );
+      await reloadRemote();
+      await refreshLearnerRecord();
+    } catch {
+      setAssessmentUploadMessage("The report could not be uploaded.");
+    } finally {
+      setUploadingAssessment(false);
+    }
+  }
+
+  async function downloadAssessmentSource(source: AssessmentSourceFile) {
+    if (!supabase || !parentAccessToken) {
+      setAssessmentUploadMessage("Reopen Parent view to download a report.");
+      return;
+    }
+    setDownloadingAssessmentId(source.id);
+    setAssessmentUploadMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setDownloadingAssessmentId(null);
+      setAssessmentUploadMessage("Sign in again before downloading a report.");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/assessment-sources/${source.id}`, {
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "x-parent-access-token": parentAccessToken,
+        },
+      });
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          setParentAccessToken(null);
+          setParentSessionExpiresAt(null);
+          setView("learner");
+        }
+        setAssessmentUploadMessage("The source report could not be downloaded.");
+        return;
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = source.originalFilename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setAssessmentUploadMessage("The source report could not be downloaded.");
+    } finally {
+      setDownloadingAssessmentId(null);
+    }
   }
 
   if (supabase && !authChecked)
@@ -1774,7 +2392,11 @@ export function WeeklyDashboard() {
             <div className="flex rounded-xl border border-[var(--line)] bg-white p-1">
               <button
                 className={`mode-button ${view === "learner" ? "mode-button-active" : ""}`}
-                onClick={() => setView("learner")}
+                onClick={() => {
+                  setParentAccessToken(null);
+                  setParentSessionExpiresAt(null);
+                  setView("learner");
+                }}
               >
                 Learner
               </button>
@@ -1797,6 +2419,30 @@ export function WeeklyDashboard() {
           </div>
         </header>
 
+        {view === "parent" ? (
+          <nav
+            className="parent-section-nav mt-5"
+            aria-label="Parent dashboard sections"
+          >
+            <div role="tablist" aria-label="Parent dashboard sections">
+              {parentSections.map((section) => (
+                <button
+                  key={section.id}
+                  id={`parent-tab-${section.id}`}
+                  className={`parent-section-tab ${parentSection === section.id ? "parent-section-tab-active" : ""}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={parentSection === section.id}
+                  aria-controls={`parent-panel-${section.id}`}
+                  onClick={() => setParentSection(section.id)}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+          </nav>
+        ) : null}
+
         {syncError ? (
           <p
             className="mt-4 rounded-xl bg-[#fff0ec] p-3 text-sm font-bold text-[var(--danger)]"
@@ -1805,7 +2451,8 @@ export function WeeklyDashboard() {
             Sync problem: {syncError}
           </p>
         ) : null}
-        {isFirstPlanSetup ? (
+        {view === "learner" || parentSection === "weekly-planning" ? (
+          isFirstPlanSetup ? (
           <p className="history-notice mt-5">
             <strong>Set up this week:</strong> A parent can include or exclude
             the tasks below, then start the week to make its task copies
@@ -1822,9 +2469,13 @@ export function WeeklyDashboard() {
             <strong>Completed week:</strong> This history is read-only. Its
             tasks and XP cannot be changed.
           </p>
+          ) : null
         ) : null}
 
-        <section className="overview-panel mt-5">
+        {view === "learner" ||
+        parentSection === "overview" ||
+        parentSection === "weekly-planning" ? (
+          <section className="overview-panel mt-5">
           <div className="reminder-panel">
             <p className="text-xs font-black uppercase tracking-[.18em] text-[var(--purple)]">
               {isFirstPlanSetup
@@ -1882,7 +2533,8 @@ export function WeeklyDashboard() {
               }
             />
           </div>
-        </section>
+          </section>
+        ) : null}
 
         {view === "learner" ? (
           <section className="mt-5">
@@ -2197,7 +2849,82 @@ export function WeeklyDashboard() {
         ) : (
           <>
             <section className="parent-dashboard mt-7">
-              {attentionCount > 0 ? (
+              {parentSection === "overview" ? (
+                <section
+                  id="parent-panel-overview"
+                  className="parent-section-panel"
+                  role="tabpanel"
+                  aria-labelledby="parent-tab-overview"
+                >
+                  <div className="parent-section-heading">
+                    <div>
+                      <p className="label">Parent dashboard</p>
+                      <h2>Overview</h2>
+                      <p>
+                        A quick view of effort, planned work, and requests that
+                        need a parent.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="parent-overview-grid">
+                    <article className="parent-summary-card">
+                      <span>Needs attention</span>
+                      <strong>{attentionCount}</strong>
+                      <p>Open help requests and task swaps</p>
+                    </article>
+                    <article className="parent-summary-card">
+                      <span>This week&apos;s effort</span>
+                      <strong>
+                        {earnedXP} / {plannedXP} XP
+                      </strong>
+                      <p>XP records effort, not academic mastery</p>
+                    </article>
+                    <article className="parent-summary-card">
+                      <span>Parent-supported work</span>
+                      <strong>{parentLedTasks.length}</strong>
+                      <p>Activities currently set to do together</p>
+                    </article>
+                  </div>
+                  {supabase ? (
+                    <div className="family-management-card">
+                      <div>
+                        <p className="label">Family account</p>
+                        <h3>Manage learners</h3>
+                        <p>
+                          Add a learner to the family account, then choose their
+                          name from the learner selector above.
+                        </p>
+                      </div>
+                      <form className="family-add-form" onSubmit={addLearner}>
+                        <label className="field-label">
+                          Add another learner
+                          <input
+                            className="field"
+                            value={newLearnerName}
+                            onChange={(event) =>
+                              setNewLearnerName(event.target.value)
+                            }
+                            placeholder="Learner name"
+                            maxLength={80}
+                            required
+                          />
+                        </label>
+                        <button
+                          className="secondary-button"
+                          type="submit"
+                          disabled={addingLearner}
+                        >
+                          {addingLearner ? "Adding learner..." : "Add learner"}
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {(parentSection === "overview" ||
+                parentSection === "weekly-planning") &&
+              attentionCount > 0 ? (
                 <section
                   className="attention-panel"
                   aria-labelledby="attention-title"
@@ -2281,9 +3008,26 @@ export function WeeklyDashboard() {
                     })}
                   </div>
                 </section>
+              ) : parentSection === "overview" ? (
+                <section className="attention-empty" aria-live="polite">
+                  <div>
+                    <p className="label">Who needs me?</p>
+                    <h2>No open requests</h2>
+                  </div>
+                  <p>
+                    There are no learner help requests or task swaps waiting
+                    for review in this week.
+                  </p>
+                </section>
               ) : null}
 
-              <div className="parent-workspace">
+              {parentSection === "weekly-planning" ? (
+                <div
+                  id="parent-panel-weekly-planning"
+                  className="parent-workspace"
+                  role="tabpanel"
+                  aria-labelledby="parent-tab-weekly-planning"
+                >
                 <section
                   className="weekly-editor"
                   aria-labelledby="weekly-plan-title"
@@ -2791,106 +3535,6 @@ export function WeeklyDashboard() {
                     </details>
                   ) : null}
 
-                  {dashboard.parentStruggles.length ? (
-                    <details className="utility-card parent-feedback-log">
-                      <summary>
-                        <span>
-                          <small>Running academic log</small>
-                          <strong>
-                            Parent feedback ({dashboard.parentStruggles.length})
-                          </strong>
-                        </span>
-                      </summary>
-                      <div className="utility-content observation-list">
-                        <p className="utility-copy">
-                          Parent-reported notes carry across weeks. They do not
-                          change XP or establish mastery.
-                        </p>
-                        {dashboard.parentStruggles.map((observation) => {
-                          const observedTask = dashboard.tasks.find(
-                            (task) => task.id === observation.taskId,
-                          );
-                          const observedPlan = dashboard.plans.find(
-                            (candidate) =>
-                              candidate.id === observedTask?.weeklyPlanId,
-                          );
-                          return (
-                            <article
-                              key={observation.id}
-                              className="struggle-observation feedback-log-entry"
-                            >
-                              <h3>{observedTask?.name ?? "Preserved task"}</h3>
-                              <p>{observation.description}</p>
-                              <small>
-                                Parent reported · {observation.category}
-                                {observedTask ? ` · ${observedTask.day}` : ""}
-                                {" · "}
-                                {observedPlan
-                                  ? weekLabel(observedPlan.weekStart)
-                                  : "Legacy / Unassigned"}
-                                {" · "}
-                                {new Date(
-                                  observation.recordedAt,
-                                ).toLocaleString()}
-                              </small>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </details>
-                  ) : null}
-
-                  <details className="utility-card">
-                    <summary>
-                      <span>
-                        <small>Account</small>
-                        <strong>Family settings</strong>
-                      </span>
-                    </summary>
-                    <div className="utility-content">
-                      <label className="field-label">
-                        Current learner name
-                        <input
-                          className="field"
-                          value={dashboard.learnerName}
-                          onChange={(event) =>
-                            setDashboard((current) => ({
-                              ...current,
-                              learnerName: event.target.value,
-                            }))
-                          }
-                          onBlur={() => void saveLearnerName()}
-                        />
-                      </label>
-                      {supabase ? (
-                        <form className="family-add-form" onSubmit={addLearner}>
-                          <label className="field-label">
-                            Add another learner
-                            <input
-                              className="field"
-                              value={newLearnerName}
-                              onChange={(event) =>
-                                setNewLearnerName(event.target.value)
-                              }
-                              placeholder="Learner name"
-                              maxLength={80}
-                              required
-                            />
-                          </label>
-                          <button
-                            className="secondary-button"
-                            type="submit"
-                            disabled={addingLearner}
-                          >
-                            {addingLearner
-                              ? "Adding learner..."
-                              : "Add learner"}
-                          </button>
-                        </form>
-                      ) : null}
-                    </div>
-                  </details>
-
                   {reviewedSwapRequests.length ? (
                     <details className="utility-card">
                       <summary>
@@ -2928,8 +3572,505 @@ export function WeeklyDashboard() {
                     </details>
                   ) : null}
                 </aside>
-              </div>
+                </div>
+              ) : null}
             </section>
+
+            {parentSection === "learner-profile" ? (
+              <section
+                id="parent-panel-learner-profile"
+                className="parent-section-panel mt-7"
+                role="tabpanel"
+                aria-labelledby="parent-tab-learner-profile"
+              >
+                <div className="parent-section-heading">
+                  <div>
+                    <p className="label">Learner record</p>
+                    <h2>Learner Profile</h2>
+                    <p>
+                      This profile belongs to the learner selected above. Manage
+                      their identity and source documents here.
+                    </p>
+                  </div>
+                </div>
+                <div className="profile-grid">
+                  <article className="profile-card profile-about-card">
+                    <p className="label">Parent-provided context</p>
+                    <h3>About {dashboard.learnerName}</h3>
+                    <p className="source-boundary-copy">
+                      These details help adults understand the learner. They are
+                      not assessment results and do not change XP or mastery.
+                    </p>
+                    <form className="profile-about-form" onSubmit={saveLearnerProfile}>
+                      <label className="field-label">
+                        Current learner name
+                        <input
+                          className="field"
+                          value={dashboard.learnerName}
+                          onChange={(event) =>
+                            setDashboard((current) => ({
+                              ...current,
+                              learnerName: event.target.value,
+                            }))
+                          }
+                          onBlur={() => void saveLearnerName()}
+                        />
+                      </label>
+                      <div className="profile-field-row">
+                        <label className="field-label">
+                          Date of birth
+                          <input className="field" type="date" value={profileDraft.dateOfBirth} onChange={(event) => setProfileDraft((current) => ({ ...current, dateOfBirth: event.target.value }))} />
+                        </label>
+                        <label className="field-label">
+                          Educational level
+                          <input className="field" value={profileDraft.educationalLevel} maxLength={120} onChange={(event) => setProfileDraft((current) => ({ ...current, educationalLevel: event.target.value }))} placeholder="Example: Grade 4" />
+                        </label>
+                      </div>
+                      {[
+                        ["interests", "Interests"],
+                        ["learningPreferences", "Learning preferences"],
+                        ["observedStrengths", "Strengths you have observed"],
+                        ["observedChallenges", "Challenges you have observed"],
+                        ["motivators", "Motivators"],
+                        ["helpfulApproaches", "Approaches that help"],
+                        ["additionalNotes", "Additional notes"],
+                      ].map(([field, label]) => (
+                        <label className="field-label" key={field}>
+                          {label}
+                          <textarea
+                            className="field profile-textarea"
+                            value={profileDraft[field as keyof typeof profileDraft]}
+                            onChange={(event) => setProfileDraft((current) => ({ ...current, [field]: event.target.value }))}
+                          />
+                        </label>
+                      ))}
+                      <button className="primary-button" type="submit" disabled={profileActionId === "profile" || !parentAccessToken}>
+                        {profileActionId === "profile" ? "Saving..." : "Save learner context"}
+                      </button>
+                    </form>
+                  </article>
+                  <article className="profile-card source-card">
+                    <p className="label">Assessment sources</p>
+                    <h3>Academic reports ({dashboard.assessmentSources.length})</h3>
+                    <p className="source-boundary-copy">
+                      Stored files are source material only. Uploading one does
+                      not create academic statuses, mastery, or XP.
+                    </p>
+                    {assessmentSourcesError ? (
+                      <div className="source-error-state" role="alert">
+                        <strong>Report sources could not be loaded</strong>
+                        <p>{assessmentSourcesError}</p>
+                      </div>
+                    ) : dashboard.assessmentSources.length ? (
+                      <div className="assessment-source-list">
+                        {dashboard.assessmentSources.map((source) => {
+                          const assessment = learnerRecord?.assessments.find((candidate) => candidate.source_file_id === source.id);
+                          return <article key={source.id} className="assessment-source-row">
+                            <div>
+                              <strong>{source.sourceLabel}</strong>
+                              <p>{source.originalFilename}</p>
+                            </div>
+                            <dl>
+                              <div>
+                                <dt>Source date</dt>
+                                <dd>
+                                  {source.assessmentDate
+                                    ? new Date(
+                                        `${source.assessmentDate}T00:00:00`,
+                                      ).toLocaleDateString()
+                                    : "Not provided"}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Uploaded</dt>
+                                <dd>
+                                  {new Date(source.uploadedAt).toLocaleDateString()}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>File</dt>
+                                <dd>{formatFileSize(source.byteSize)}</dd>
+                              </div>
+                            </dl>
+                            <div className="assessment-source-actions">
+                              <span>
+                                {assessment
+                                  ? assessment.processing_status.replaceAll("_", " ")
+                                  : "Stored source · Not processed"}
+                              </span>
+                              {assessment && (["uploaded", "failed"].includes(assessment.processing_status) || assessment.processing_retry_available) ? (
+                                <button
+                                  className="source-download-button"
+                                  type="button"
+                                  disabled={profileActionId === assessment.id}
+                                  onClick={() => void processAssessment(assessment.id)}
+                                >
+                                  {profileActionId === assessment.id ? "Processing..." : assessment.processing_status === "failed" ? "Retry processing" : "Process report"}
+                                </button>
+                              ) : null}
+                              <button
+                                className="source-download-button"
+                                type="button"
+                                disabled={downloadingAssessmentId === source.id}
+                                onClick={() => void downloadAssessmentSource(source)}
+                              >
+                                {downloadingAssessmentId === source.id
+                                  ? "Preparing..."
+                                  : "Download source"}
+                              </button>
+                            </div>
+                            {assessment?.processing_error ? <p className="source-error-state">{assessment.processing_error}</p> : null}
+                          </article>;
+                        })}
+                      </div>
+                    ) : (
+                      <div className="source-empty-state">
+                        <strong>No assessment reports are connected yet</strong>
+                        <p>
+                          This profile is the source of truth for private report
+                          files. Academics stays empty until a future validated
+                          processor creates separately sourced results.
+                        </p>
+                      </div>
+                    )}
+                    {supabase ? (
+                      <form
+                        className="assessment-upload-form"
+                        onSubmit={(event) => void uploadAssessmentSource(event)}
+                      >
+                        <p className="label">Add a source report</p>
+                        <label className="field-label">
+                          Report source
+                          <input
+                            className="field"
+                            name="sourceLabel"
+                            value={assessmentSourceLabel}
+                            onChange={(event) =>
+                              setAssessmentSourceLabel(event.target.value)
+                            }
+                            placeholder="Example: MAP Growth"
+                            maxLength={120}
+                            required
+                          />
+                        </label>
+                        <label className="field-label">
+                          Report date (optional)
+                          <input
+                            className="field"
+                            name="assessmentDate"
+                            type="date"
+                            value={assessmentDate}
+                            onChange={(event) =>
+                              setAssessmentDate(event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          Report file
+                          <input
+                            className="field file-field"
+                            name="report"
+                            type="file"
+                            accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
+                            required
+                          />
+                          <small>PDF, JPEG, or PNG · 10 MB maximum</small>
+                        </label>
+                        <button
+                          className="primary-button"
+                          type="submit"
+                          disabled={uploadingAssessment || !parentAccessToken}
+                        >
+                          {uploadingAssessment
+                            ? "Storing report..."
+                            : "Store source report"}
+                        </button>
+                        {assessmentUploadMessage ? (
+                          <p className="assessment-upload-message" role="status">
+                            {assessmentUploadMessage}
+                          </p>
+                        ) : null}
+                      </form>
+                    ) : (
+                      <p className="source-boundary-copy">
+                        Sign in to store private report files.
+                      </p>
+                    )}
+                  </article>
+                  <article className="profile-card profile-review-card">
+                    <p className="label">Human review required</p>
+                    <h3>Assessment findings</h3>
+                    <p className="source-boundary-copy">
+                      AI drafts stay out of Academics until you review every finding.
+                      Corrections preserve the original provider result.
+                    </p>
+                    {learnerRecord?.assessments.filter((assessment) => assessment.processing_status === "ready_for_review").map((assessment) => {
+                      const extraction = learnerRecord.extractions.find((candidate) => candidate.assessment_id === assessment.id && candidate.review_status === "draft");
+                      const findings = extraction ? learnerRecord.findings.filter((finding) => finding.extraction_id === extraction.id) : [];
+                      return extraction ? (
+                        <section className="assessment-review" key={assessment.id}>
+                          <h4>{assessment.assessment_name}</h4>
+                          {findings.length ? findings.map((finding) => (
+                            <article className="finding-review-row" key={finding.id}>
+                              <div className="finding-review-heading">
+                                <strong>{finding.skill_name}</strong>
+                                <span>{finding.proposed_status.replaceAll("_", " ")} · {finding.confidence} confidence</span>
+                              </div>
+                              <p><b>Provider result:</b> {finding.original_provider_result || "No explicit result"}</p>
+                              <p><b>AI interpretation:</b> {finding.ai_interpretation}</p>
+                              <p><b>Evidence:</b> {finding.supporting_evidence}</p>
+                              <label className="field-label">
+                                Parent correction (optional)
+                                <textarea className="field" value={findingEdits[finding.id]?.correction ?? ""} onChange={(event) => setFindingEdits((current) => ({ ...current, [finding.id]: { correction: event.target.value, statusOverride: current[finding.id]?.statusOverride ?? "" } }))} />
+                              </label>
+                              <label className="field-label">
+                                Status correction (optional)
+                                <select className="field" value={findingEdits[finding.id]?.statusOverride ?? ""} onChange={(event) => setFindingEdits((current) => ({ ...current, [finding.id]: { correction: current[finding.id]?.correction ?? "", statusOverride: event.target.value } }))}>
+                                  <option value="">Keep proposed status</option>
+                                  <option value="developing">Developing</option>
+                                  <option value="not_yet_demonstrated">Not Yet Demonstrated</option>
+                                  <option value="needs_verification">Needs Verification</option>
+                                  <option value="not_assessed">Not Assessed</option>
+                                  {finding.provider_reported_status ? <option value="mastered">Mastered (provider explicit)</option> : null}
+                                </select>
+                              </label>
+                            </article>
+                          )) : <p className="empty-note">No skill findings were extracted. Approving preserves that empty result.</p>}
+                          <button className="primary-button" type="button" disabled={profileActionId === assessment.id} onClick={() => void approveAssessment(assessment.id, extraction.id)}>
+                            {profileActionId === assessment.id ? "Approving..." : "Approve reviewed findings"}
+                          </button>
+                        </section>
+                      ) : null;
+                    })}
+                    {!learnerRecord?.assessments.some((assessment) => assessment.processing_status === "ready_for_review") ? (
+                      <p className="empty-note">No assessment draft is waiting for review.</p>
+                    ) : null}
+                  </article>
+
+                  <article className="profile-card">
+                    <p className="label">Parent-reported context</p>
+                    <h3>Observations ({learnerRecord?.observations.length ?? 0})</h3>
+                    <div className="compact-profile-form">
+                      <input className="field" value={observationSubject} onChange={(event) => setObservationSubject(event.target.value)} placeholder="Subject (optional)" maxLength={120} />
+                      <input className="field" value={observationSkill} onChange={(event) => setObservationSkill(event.target.value)} placeholder="Related skill (optional)" maxLength={240} />
+                      <textarea className="field" value={observationText} onChange={(event) => setObservationText(event.target.value)} placeholder="What did you observe?" maxLength={4000} />
+                      <button className="secondary-button" type="button" disabled={!observationText.trim() || profileActionId === "observation"} onClick={() => void addProfileRecord("observation")}>Add observation</button>
+                    </div>
+                    <div className="profile-record-list">
+                      {learnerRecord?.observations.map((observation) => (
+                        <article key={observation.id}>
+                          <strong>{observation.subject || observation.related_skill || "General observation"}</strong>
+                          <p>{observation.observation_text}</p>
+                          <small>Parent reported · {new Date(`${observation.observation_date}T00:00:00`).toLocaleDateString()}</small>
+                        </article>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="profile-card">
+                    <p className="label">Planning context</p>
+                    <h3>Current priorities</h3>
+                    <div className="compact-profile-form">
+                      <input className="field" value={priorityTitle} onChange={(event) => setPriorityTitle(event.target.value)} placeholder="Priority" maxLength={240} />
+                      <input className="field" value={prioritySubject} onChange={(event) => setPrioritySubject(event.target.value)} placeholder="Subject (optional)" maxLength={120} />
+                      <button className="secondary-button" type="button" disabled={!priorityTitle.trim() || profileActionId === "priority"} onClick={() => void addProfileRecord("priority")}>Add priority</button>
+                    </div>
+                    <div className="profile-record-list">
+                      {learnerRecord?.priorities.filter((priority) => priority.active).map((priority) => (
+                        <article key={priority.id}>
+                          <strong>{priority.title}</strong>
+                          <p>{priority.subject || "All subjects"}</p>
+                          <button className="text-button" type="button" disabled={profileActionId === priority.id} onClick={() => void updatePriority(priority.id, false)}>Mark complete</button>
+                        </article>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="profile-card profile-summary-card">
+                    <p className="label">Versioned, evidence-backed draft</p>
+                    <h3>Learner summary</h3>
+                    <p className="source-boundary-copy">
+                      Generation uses approved assessment findings and parent-reported observations. It never changes the plan automatically.
+                    </p>
+                    <button className="secondary-button" type="button" disabled={profileActionId === "summary"} onClick={() => void generateProfileSummary()}>
+                      {profileActionId === "summary" ? "Generating..." : "Generate new summary draft"}
+                    </button>
+                    {learnerRecord?.summaries.map((summary) => (
+                      <details className="summary-version" key={summary.id} open={summary.status === "draft"}>
+                        <summary>Version {summary.version} · {summary.status}</summary>
+                        <div>
+                          <h4>Overview</h4><p>{summary.learner_overview}</p>
+                          <h4>Strengths</h4><p>{summary.strengths}</p>
+                          <h4>Developing skills</h4><p>{summary.developing_skills}</p>
+                          <h4>Patterns and questions</h4><p>{summary.learning_patterns}</p><p>{summary.areas_to_investigate}</p>
+                          <h4>Teaching recommendations</h4><p>{summary.teaching_recommendations}</p>
+                          {summary.status === "draft" ? <button className="primary-button" type="button" disabled={profileActionId === summary.id} onClick={() => void approveProfileSummary(summary.id)}>Approve this version</button> : null}
+                        </div>
+                      </details>
+                    ))}
+                    {profileRecordError ? <p className="source-error-state" role="alert">{profileRecordError}</p> : null}
+                    {profileActionMessage ? <p className="assessment-upload-message" role="status">{profileActionMessage}</p> : null}
+                  </article>
+                </div>
+              </section>
+            ) : null}
+
+            {parentSection === "academics" ? (
+              <section
+                id="parent-panel-academics"
+                className="parent-section-panel academics-panel mt-7"
+                role="tabpanel"
+                aria-labelledby="parent-tab-academics"
+              >
+                <div className="parent-section-heading">
+                  <div>
+                    <p className="label">Evidence-backed progress</p>
+                    <h2>Academics</h2>
+                    <p>
+                      Academic details appear only when a dated source report
+                      supports them. XP and completed tasks are never treated as
+                      mastery evidence.
+                    </p>
+                  </div>
+                </div>
+                {approvedAcademicFindings.length ? (
+                  <div className="academic-findings-grid">
+                    {approvedAcademicSummary ? (
+                      <article className="academic-summary-card">
+                        <p className="label">Parent-approved summary · Version {approvedAcademicSummary.version}</p>
+                        <h3>Learner overview</h3>
+                        <p>{approvedAcademicSummary.learner_overview}</p>
+                        <h4>Strengths</h4><p>{approvedAcademicSummary.strengths}</p>
+                        <h4>Developing skills</h4><p>{approvedAcademicSummary.developing_skills}</p>
+                      </article>
+                    ) : null}
+                    {approvedAcademicFindings.map((finding) => {
+                      const assessment = learnerRecord?.assessments.find((candidate) => candidate.id === finding.assessment_id);
+                      const status = finding.parent_status_override || finding.proposed_status;
+                      return (
+                        <article className="academic-finding-card" key={finding.id}>
+                          <div className="finding-review-heading">
+                            <div><p className="label">{finding.domain || assessment?.subject || "Assessment finding"}</p><h3>{finding.skill_name}</h3></div>
+                            <span>{status.replaceAll("_", " ")}</span>
+                          </div>
+                          <p><b>Provider result:</b> {finding.original_provider_result || "No explicit provider status"}</p>
+                          <p><b>Reviewed interpretation:</b> {finding.parent_correction || finding.ai_interpretation}</p>
+                          <small>
+                            Source: {assessment?.assessment_name ?? "Assessment report"}
+                            {assessment?.provider ? ` · ${assessment.provider}` : ""}
+                            {assessment?.assessment_date ? ` · ${new Date(`${assessment.assessment_date}T00:00:00`).toLocaleDateString()}` : ""}
+                            {` · ${finding.confidence} confidence`}
+                          </small>
+                          {status === "mastered" ? <p className="source-boundary-copy">Provider-reported result only. No mastery badge was awarded.</p> : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="academic-empty-state">
+                    <span aria-hidden="true">A</span>
+                    <div>
+                      <p className="label">Assessment evidence required</p>
+                      <h3>No approved assessment information available</h3>
+                      <p>
+                        Process a source report in Learner Profile, then review
+                        and approve its findings. XP and activity completion do
+                        not create academic statuses.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div className="evidence-boundary">
+                  <h3>How evidence will stay clear</h3>
+                  <p>
+                    Provider results, generated interpretations, parent
+                    observations, and Colorado standards mappings will remain
+                    separately labeled with their own source and date.
+                  </p>
+                </div>
+                <section className="observation-section">
+                  <div>
+                    <p className="label">Separate supporting context</p>
+                    <h3>
+                      Parent observations ({dashboard.parentStruggles.length + (learnerRecord?.observations.length ?? 0)})
+                    </h3>
+                    <p>
+                      These notes preserve parent provenance. They may add
+                      context, but they do not establish an academic status or
+                      change XP.
+                    </p>
+                  </div>
+                  {learnerRecord?.observations.length ? (
+                    <div className="observation-list academics-observation-list">
+                      {learnerRecord.observations.map((observation) => (
+                        <article key={observation.id} className="struggle-observation feedback-log-entry">
+                          <h3>{observation.subject || observation.related_skill || "General observation"}</h3>
+                          <p>{observation.observation_text}</p>
+                          <small>Parent reported · {new Date(`${observation.observation_date}T00:00:00`).toLocaleDateString()} · Context only</small>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+                  {dashboard.parentStruggles.length ? (
+                    <div className="observation-list academics-observation-list">
+                      {dashboard.parentStruggles.map((observation) => {
+                        const observedTask = dashboard.tasks.find(
+                          (task) => task.id === observation.taskId,
+                        );
+                        const observedPlan = dashboard.plans.find(
+                          (candidate) =>
+                            candidate.id === observedTask?.weeklyPlanId,
+                        );
+                        return (
+                          <article
+                            key={observation.id}
+                            className="struggle-observation feedback-log-entry"
+                          >
+                            <h3>{observedTask?.name ?? "Preserved task"}</h3>
+                            <p>{observation.description}</p>
+                            <small>
+                              Parent reported · {observation.category}
+                              {observedTask ? ` · ${observedTask.day}` : ""}
+                              {" · "}
+                              {observedPlan
+                                ? weekLabel(observedPlan.weekStart)
+                                : "Legacy / Unassigned"}
+                              {" · "}
+                              {new Date(
+                                observation.recordedAt,
+                              ).toLocaleString()}
+                            </small>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : !learnerRecord?.observations.length ? (
+                    <p className="empty-note">No parent observations recorded.</p>
+                  ) : null}
+                </section>
+              </section>
+            ) : null}
+
+            {parentSection === "quest-builder" ? (
+              <section
+                id="parent-panel-quest-builder"
+                className="parent-section-panel quest-panel mt-7"
+                role="tabpanel"
+                aria-labelledby="parent-tab-quest-builder"
+              >
+                <div className="quest-mark" aria-hidden="true">
+                  Q
+                </div>
+                <p className="label">Learning experiences</p>
+                <h2>Quest Builder</h2>
+                <strong>Coming Soon</strong>
+                <p>
+                  Quest Builder will help families shape connected learning
+                  experiences. It is not available yet, and no quests can be
+                  generated or saved from this preview.
+                </p>
+              </section>
+            ) : null}
 
             {false ? (
               <section className="hidden" aria-hidden="true">

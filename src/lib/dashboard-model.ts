@@ -55,8 +55,20 @@ export interface StoredDashboard {
   taskSessions: TaskSession[];
   helpRequests: HelpRequest[];
   parentStruggles: ParentStruggleObservation[];
+  assessmentSources: AssessmentSourceFile[];
   taskSwapRequests: TaskSwapRequest[];
   legacySickDays: Day[];
+}
+
+export interface AssessmentSourceFile {
+  id: string;
+  learnerId: string;
+  sourceLabel: string;
+  assessmentDate: string | null;
+  originalFilename: string;
+  contentType: "application/pdf" | "image/jpeg" | "image/png";
+  byteSize: number;
+  uploadedAt: string;
 }
 
 export interface TaskSession {

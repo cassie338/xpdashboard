@@ -1,6 +1,6 @@
 import { chromium } from "playwright-core";
 
-const appUrl = "http://localhost:3100";
+const appUrl = process.env.APP_URL ?? "http://localhost:3100";
 const browser = await chromium.launch({
   executablePath:
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -15,6 +15,7 @@ const forbiddenRequests = [];
 const httpErrors = [];
 const parentBirthday = "01/02/90";
 let testedParentGateFailure = false;
+let testedParentNavigation = false;
 
 page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
@@ -48,6 +49,105 @@ async function enterParentView() {
   }
   await dialog.getByLabel("Parent birthday").fill(parentBirthday);
   await dialog.getByRole("button", { name: "Continue" }).click();
+  const parentNavigation = page.getByRole("navigation", {
+    name: "Parent dashboard sections",
+  });
+  await parentNavigation
+    .getByRole("tab", { name: "Overview", exact: true })
+    .waitFor();
+  if (!testedParentNavigation) {
+    assert(
+      (await parentNavigation.getByRole("tab").count()) === 5,
+      "Parent navigation did not show all five sections.",
+    );
+    await parentNavigation.getByRole("tab", { name: "Academics" }).click();
+    await page
+      .getByRole("heading", { name: "No approved assessment information available" })
+      .waitFor();
+    for (const unsupportedStatus of [
+      "Mastered",
+      "Developing",
+      "Not Yet Demonstrated",
+      "Needs Verification",
+      "Not Assessed",
+    ]) {
+      assert(
+        (await page.getByText(unsupportedStatus, { exact: true }).count()) === 0,
+        `Academics displayed ${unsupportedStatus} without assessment evidence.`,
+      );
+    }
+    await parentNavigation
+      .getByRole("tab", { name: "Learner Profile" })
+      .click();
+    await page
+      .getByText("No assessment reports are connected yet", { exact: true })
+      .waitFor();
+    assert(
+      (await page
+        .getByRole("tabpanel", { name: "Learner Profile" })
+        .getByLabel("Add another learner")
+        .count()) === 0,
+      "Learner Profile exposed family-level learner creation.",
+    );
+    await page.getByLabel("Educational level").fill("Grade 4");
+    await page.getByLabel("Interests").fill("Nature, stories, and building");
+    await page.getByRole("button", { name: "Save learner context" }).click();
+    await page
+      .getByText("About this learner was saved as parent-provided context.", {
+        exact: true,
+      })
+      .waitFor();
+    await page.getByPlaceholder("Subject (optional)").first().fill("Reading");
+    await page.getByPlaceholder("Related skill (optional)").fill("Short vowels");
+    await page
+      .getByPlaceholder("What did you observe?")
+      .fill("Used vowel cards without prompting.");
+    await page.getByRole("button", { name: "Add observation" }).click();
+    await page.getByText("Observation saved.", { exact: true }).waitFor();
+    await page.getByPlaceholder("Priority").fill("Keep reading practice low pressure");
+    await page.getByRole("button", { name: "Add priority" }).click();
+    await page.getByText("Priority saved.", { exact: true }).waitFor();
+    await page.getByLabel("Report source").fill("Local MAP Growth");
+    await page.getByLabel("Report date (optional)").fill("2026-10-01");
+    await page.getByLabel("Report file").setInputFiles({
+      name: "local-map-report.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\nLocal browser assessment source\n"),
+    });
+    await page.getByRole("button", { name: "Store source report" }).click();
+    await page
+      .getByText(
+        "Report stored as an unprocessed source. No academic status or XP changed.",
+        { exact: true },
+      )
+      .waitFor();
+    await page.getByText("uploaded", { exact: true }).waitFor();
+    await page.getByText("Local MAP Growth", { exact: true }).waitFor();
+    const reportDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download source" }).click();
+    assert(
+      (await reportDownload).suggestedFilename() === "local-map-report.pdf",
+      "Private assessment source download did not preserve its safe filename.",
+    );
+    await parentNavigation.getByRole("tab", { name: "Academics" }).click();
+    await page
+      .getByRole("heading", { name: "No approved assessment information available" })
+      .waitFor();
+    await page
+      .getByText("Used vowel cards without prompting.", { exact: true })
+      .waitFor();
+    await parentNavigation.getByRole("tab", { name: "Quest Builder" }).click();
+    const questPanel = page.getByRole("tabpanel", { name: "Quest Builder" });
+    await questPanel.getByText("Coming Soon", { exact: true }).waitFor();
+    assert(
+      (await questPanel.getByRole("button").count()) === 0,
+      "Quest Builder exposed an interactive control.",
+    );
+    testedParentNavigation = true;
+  }
+  await parentNavigation
+    .getByRole("tab", { name: "Weekly Planning", exact: true })
+    .click();
   await page.getByRole("heading", { name: "Weekly plan" }).waitFor();
 }
 
@@ -376,21 +476,32 @@ try {
   await readingFeedback
     .getByRole("button", { name: "Save parent feedback" })
     .click();
-  const feedbackLog = page
-    .locator(".utility-card")
-    .filter({ hasText: "Parent feedback (2)" });
-  await feedbackLog.locator("summary").click();
-  await feedbackLog
+  const parentNavigation = page.getByRole("navigation", {
+    name: "Parent dashboard sections",
+  });
+  await parentNavigation.getByRole("tab", { name: "Academics" }).click();
+  const observationSection = page.locator(".observation-section");
+  await observationSection
+    .getByRole("heading", { name: "Parent observations (3)" })
+    .waitFor();
+  await observationSection
     .getByText("Retelling the page aloud helped connect the main ideas.", {
       exact: true,
     })
     .waitFor();
+  await observationSection
+    .getByText(/Parent reported · Reading/)
+    .waitFor();
+  await parentNavigation.getByRole("tab", { name: "Overview" }).click();
   const helpPanel = page.locator(".attention-panel");
   await helpPanel
     .getByText("Write one great paragraph", { exact: true })
     .waitFor();
   await helpPanel.getByRole("button", { name: "Mark resolved" }).click();
   await helpPanel.waitFor({ state: "detached" });
+  await parentNavigation
+    .getByRole("tab", { name: "Weekly Planning" })
+    .click();
   if (!(await parentWednesday.evaluate((element) => element.open)))
     await parentWednesday.locator(":scope > summary").click();
   const removeWednesdayButton = page.getByRole("button", {
@@ -518,11 +629,13 @@ try {
   );
 
   await enterParentView();
-  const familySettings = page
-    .locator(".utility-card")
-    .filter({ hasText: "Family settings" });
-  await familySettings.locator("summary").click();
-  const addLearnerForm = familySettings.locator(".family-add-form");
+  const parentNavigationAfterHistory = page.getByRole("navigation", {
+    name: "Parent dashboard sections",
+  });
+  await parentNavigationAfterHistory
+    .getByRole("tab", { name: "Overview" })
+    .click();
+  const addLearnerForm = page.locator(".family-management-card .family-add-form");
   await addLearnerForm.getByLabel("Add another learner").fill("Second Learner");
   await addLearnerForm.getByRole("button", { name: "Add learner" }).click();
   await learnerSelect
@@ -537,6 +650,9 @@ try {
     (await learnerSelect.locator("option").count()) === 2,
     "Expected two learner profiles.",
   );
+  await parentNavigationAfterHistory
+    .getByRole("tab", { name: "Weekly Planning" })
+    .click();
   await page
     .locator(".weekly-editor .status-badge")
     .getByText("Current", { exact: true })
