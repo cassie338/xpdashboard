@@ -500,6 +500,15 @@ async function createFirstPlan(client, userId, name) {
   );
   if (planError) throw planError;
 
+  const { error: quoteError } = await client.rpc(
+    "set_weekly_inspirational_quote",
+    {
+      p_weekly_plan_id: planId,
+      p_quote: "Keep going, one thoughtful step at a time.",
+    },
+  );
+  if (quoteError) throw quoteError;
+
   const { data: copiedTask, error: copiedError } = await client
     .from("tasks")
     .select("id")
@@ -512,6 +521,26 @@ async function createFirstPlan(client, userId, name) {
     p_support_mode: "with_parent",
   });
   if (supportError) throw supportError;
+  const { error: moveError } = await client.rpc("move_weekly_task", {
+    p_task_id: copiedTask.id,
+    p_target_day: "Tuesday",
+    p_before_task_id: null,
+  });
+  if (moveError) throw moveError;
+  const { data: movedTask, error: movedTaskError } = await client
+    .from("tasks")
+    .select("day, position")
+    .eq("id", copiedTask.id)
+    .single();
+  if (movedTaskError) throw movedTaskError;
+  if (movedTask.day !== "Tuesday" || movedTask.position !== 0)
+    throw new Error("Owned weekly task did not move to the target day.");
+  const { error: moveBackError } = await client.rpc("move_weekly_task", {
+    p_task_id: copiedTask.id,
+    p_target_day: "Monday",
+    p_before_task_id: null,
+  });
+  if (moveBackError) throw moveBackError;
   const { error: struggleError } = await client.rpc("record_parent_struggle", {
     p_task_id: copiedTask.id,
     p_description: "Local RLS observation",
@@ -625,6 +654,14 @@ async function assertCannotAccess(
   if (!supportError)
     throw new Error("Cross-user support-mode RPC unexpectedly succeeded.");
 
+  const { error: moveError } = await attacker.rpc("move_weekly_task", {
+    p_task_id: ownerRecords.copiedTaskId,
+    p_target_day: "Tuesday",
+    p_before_task_id: null,
+  });
+  if (!moveError)
+    throw new Error("Cross-user weekly-task move unexpectedly succeeded.");
+
   const { error: struggleError } = await attacker.rpc(
     "record_parent_struggle",
     {
@@ -656,6 +693,16 @@ async function assertCannotAccess(
   });
   if (!rewardError)
     throw new Error("Cross-user daily-reward RPC unexpectedly succeeded.");
+
+  const { error: quoteError } = await attacker.rpc(
+    "set_weekly_inspirational_quote",
+    {
+      p_weekly_plan_id: ownerRecords.planId,
+      p_quote: "Forbidden quote",
+    },
+  );
+  if (!quoteError)
+    throw new Error("Cross-user weekly quote RPC unexpectedly succeeded.");
 
   const { error: rolloverError } = await attacker.rpc("start_next_week", {
     p_source_plan_id: ownerRecords.planId,
@@ -725,5 +772,5 @@ console.log(
   "symmetric_cross_user_reads|PASS|Each user saw zero rows belonging to the other across all dashboard, session, help, struggle, swap, and XP records.",
 );
 console.log(
-  "symmetric_cross_user_mutations|PASS|Settings, task, session, help, struggle, swap, support, reward, rollover, task copy, and XP mutation attempts were rejected in both directions.",
+  "symmetric_cross_user_mutations|PASS|Settings, task, session, help, struggle, swap, support, task move, reward, weekly quote, rollover, task copy, and XP mutation attempts were rejected in both directions.",
 );

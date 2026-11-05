@@ -199,17 +199,46 @@ try {
     "Legacy option was missing.",
   );
 
+  assert(
+    (await page.locator(".parent-week-board .parent-day-column").count()) === 7,
+    "The Parent weekly board did not show seven day columns.",
+  );
+  const weeklyQuote =
+    "Small steps every day add up to something wonderful.";
+  await page.getByLabel("Inspirational quote").fill(weeklyQuote);
+  await page.getByLabel("Inspirational quote").press("Tab");
   const wednesdayPlan = page
-    .locator(".parent-day")
-    .filter({ hasText: "Wednesday" });
-  if (!(await wednesdayPlan.evaluate((element) => element.open)))
-    await wednesdayPlan.locator(":scope > summary").click();
+    .locator(".parent-day-column")
+    .filter({ has: page.locator(".parent-day-title strong", { hasText: /^Wednesday$/ }) });
+  const thursdayPlan = page
+    .locator(".parent-day-column")
+    .filter({ has: page.locator(".parent-day-title strong", { hasText: /^Thursday$/ }) });
+  const writingCard = wednesdayPlan
+    .locator(".parent-task-row")
+    .filter({ hasText: "Write one great paragraph" });
+  await writingCard.dragTo(thursdayPlan);
+  await thursdayPlan
+    .locator(".parent-task-row")
+    .filter({ hasText: "Write one great paragraph" })
+    .waitFor();
+  await thursdayPlan
+    .getByLabel("Day for Write one great paragraph")
+    .selectOption("Wednesday");
+  await wednesdayPlan
+    .locator(".parent-task-row")
+    .filter({ hasText: "Write one great paragraph" })
+    .waitFor();
+  const daySettings = wednesdayPlan.locator(".day-settings");
+  await daySettings.locator("summary").click();
   const wednesdayReward = wednesdayPlan.getByLabel("Daily reward");
   await wednesdayReward.fill("Choose tonight's family game");
   await wednesdayReward.press("Tab");
-  await wednesdayPlan.locator(".support-select").selectOption("with_parent");
+  await wednesdayPlan
+    .getByLabel("Support for Write one great paragraph")
+    .selectOption("with_parent");
 
   await page.getByRole("button", { name: "Learner", exact: true }).click();
+  await page.getByText(weeklyQuote, { exact: true }).waitFor();
   const firstTask = page
     .locator(".day-card")
     .filter({
@@ -362,10 +391,8 @@ try {
 
   await enterParentView();
   const parentWednesday = page
-    .locator(".parent-day")
-    .filter({ hasText: "Wednesday" });
-  if (!(await parentWednesday.evaluate((element) => element.open)))
-    await parentWednesday.locator(":scope > summary").click();
+    .locator(".parent-day-column")
+    .filter({ has: page.locator(".parent-day-title strong", { hasText: /^Wednesday$/ }) });
   const writingStruggle = parentWednesday
     .locator(".parent-task-row")
     .filter({ hasText: "Write one great paragraph" });
@@ -391,14 +418,14 @@ try {
     "Saving a parent-reported struggle changed XP.",
   );
   const parentTuesday = page
-    .locator(".parent-day")
-    .filter({ hasText: "Tuesday" });
-  if (!(await parentTuesday.evaluate((element) => element.open)))
-    await parentTuesday.locator(":scope > summary").click();
+    .locator(".parent-day-column")
+    .filter({ has: page.locator(".parent-day-title strong", { hasText: /^Tuesday$/ }) });
   const readingFeedback = parentTuesday
     .locator(".parent-task-row")
     .filter({ hasText: "Read for 20 minutes" });
-  await readingFeedback.locator(".support-select").selectOption("with_parent");
+  await readingFeedback
+    .getByLabel("Support for Read for 20 minutes")
+    .selectOption("with_parent");
   await readingFeedback
     .getByText("Add parent feedback", { exact: true })
     .waitFor();
@@ -409,8 +436,6 @@ try {
   await readingFeedback
     .getByRole("button", { name: "Save parent feedback" })
     .click();
-  if (!(await parentWednesday.evaluate((element) => element.open)))
-    await parentWednesday.locator(":scope > summary").click();
   const removeWednesdayButton = page.getByRole("button", {
     name: "Remove Write one great paragraph",
   });
@@ -482,10 +507,8 @@ try {
   assert(upcomingValue, "Upcoming option had no value.");
   await page.getByLabel("View week").selectOption(upcomingValue);
   const upcomingTuesday = page
-    .locator(".parent-day")
-    .filter({ hasText: "Tuesday" });
-  if (!(await upcomingTuesday.evaluate((element) => element.open)))
-    await upcomingTuesday.locator(":scope > summary").click();
+    .locator(".parent-day-column")
+    .filter({ has: page.locator(".parent-day-title strong", { hasText: /^Tuesday$/ }) });
   const upcomingReading = upcomingTuesday
     .locator(".parent-task-row")
     .filter({ hasText: "Read for 20 minutes" });
@@ -580,13 +603,23 @@ try {
   const parentMobileMetrics = await page.evaluate(() => {
     const editor = document.querySelector(".weekly-editor");
     const utilities = document.querySelector(".parent-utilities");
-    if (!(editor instanceof HTMLElement) || !(utilities instanceof HTMLElement))
+    const board = document.querySelector(".parent-week-board");
+    const dayColumn = document.querySelector(".parent-day-column");
+    if (
+      !(editor instanceof HTMLElement) ||
+      !(utilities instanceof HTMLElement) ||
+      !(board instanceof HTMLElement) ||
+      !(dayColumn instanceof HTMLElement)
+    )
       throw new Error("Mobile parent controls missing.");
     return {
       bodyWidth: document.body.scrollWidth,
       viewportWidth: window.innerWidth,
       editorWidth: editor.getBoundingClientRect().width,
       utilitiesWidth: utilities.getBoundingClientRect().width,
+      boardWidth: board.getBoundingClientRect().width,
+      boardOverflowX: getComputedStyle(board).overflowX,
+      dayColumnWidth: dayColumn.getBoundingClientRect().width,
     };
   });
   assert(
@@ -594,6 +627,12 @@ try {
       parentMobileMetrics.editorWidth <= parentMobileMetrics.viewportWidth &&
       parentMobileMetrics.utilitiesWidth <= parentMobileMetrics.viewportWidth,
     `Parent dashboard overflowed mobile viewport: ${JSON.stringify(parentMobileMetrics)}`,
+  );
+  assert(
+    parentMobileMetrics.boardWidth <= parentMobileMetrics.viewportWidth &&
+      parentMobileMetrics.boardOverflowX === "auto" &&
+      parentMobileMetrics.dayColumnWidth >= parentMobileMetrics.viewportWidth * 0.75,
+    `Parent week board was not mobile-scrollable: ${JSON.stringify(parentMobileMetrics)}`,
   );
   await page.screenshot({
     path: "/var/folders/8j/c8ymmxss3h11g4fs8yl9tccc0000gn/T/opencode/parent-dashboard-mobile.png",

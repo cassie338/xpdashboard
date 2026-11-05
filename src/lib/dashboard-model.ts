@@ -19,6 +19,7 @@ export interface WeeklyPlan {
   status: PlanStatus;
   sickDays: Day[];
   dailyRewards: Partial<Record<Day, string>>;
+  inspirationalQuote: string;
   createdAt: string;
   completedAt: string | null;
 }

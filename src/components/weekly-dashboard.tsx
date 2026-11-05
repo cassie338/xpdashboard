@@ -289,6 +289,7 @@ function loadLocalDashboard(): StoredDashboard {
           ...plan,
           learnerId: plan.learnerId ?? "local",
           dailyRewards: plan.dailyRewards ?? {},
+          inspirationalQuote: plan.inspirationalQuote ?? "",
         })),
         tasks: (parsed.tasks ?? []).map((task, position) => ({
           ...task,
@@ -423,7 +424,7 @@ async function loadSupabaseDashboard(
     client
       .from("weekly_plans")
       .select(
-        "id, learner_id, week_start, status, sick_days, daily_rewards, created_at, completed_at",
+        "id, learner_id, week_start, status, sick_days, daily_rewards, inspirational_quote, created_at, completed_at",
       )
       .eq("user_id", userId)
       .eq("learner_id", learnerId)
@@ -518,6 +519,7 @@ async function loadSupabaseDashboard(
       status: plan.status,
       sickDays: plan.sick_days as Day[],
       dailyRewards: (plan.daily_rewards ?? {}) as Partial<Record<Day, string>>,
+      inspirationalQuote: plan.inspirational_quote ?? "",
       createdAt: plan.created_at,
       completedAt: plan.completed_at,
     })),
@@ -668,6 +670,7 @@ export function WeeklyDashboard() {
   const [helpMessage, setHelpMessage] = useState("");
   const [showSwapForm, setShowSwapForm] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<Day | null>(null);
   const [newLearnerName, setNewLearnerName] = useState("");
   const [addingLearner, setAddingLearner] = useState(false);
   const [assessmentSourceLabel, setAssessmentSourceLabel] = useState("");
@@ -1418,6 +1421,28 @@ export function WeeklyDashboard() {
     await reloadRemote();
   }
 
+  async function saveInspirationalQuote(quote: string) {
+    if (!plan) return;
+    const inspirationalQuote = quote.trim();
+    if (!supabase) {
+      setDashboard((current) => ({
+        ...current,
+        plans: current.plans.map((candidate) =>
+          candidate.id === plan.id
+            ? { ...candidate, inspirationalQuote }
+            : candidate,
+        ),
+      }));
+      return;
+    }
+    const { error } = await supabase.rpc("set_weekly_inspirational_quote", {
+      p_weekly_plan_id: plan.id,
+      p_quote: inspirationalQuote,
+    });
+    if (error) return setSyncError(error.message);
+    await reloadRemote();
+  }
+
   async function recordParentStruggle(
     event: React.FormEvent<HTMLFormElement>,
     task: Task,
@@ -1587,24 +1612,97 @@ export function WeeklyDashboard() {
     );
   }
 
-  async function dropTask(target: Task) {
-    if (!draggedTaskId || draggedTaskId === target.id)
-      return setDraggedTaskId(null);
-    const dayTasks = selectedTasks
-      .filter((candidate) => candidate.day === target.day)
-      .sort((a, b) => a.position - b.position);
-    const from = dayTasks.findIndex(
+  async function moveTaskToDay(
+    task: Task,
+    targetDay: Day,
+    beforeTaskId: string | null = null,
+  ) {
+    if (!plan || !editable || beforeTaskId === task.id) return;
+    if (supabase && userId) {
+      const { error } = await supabase.rpc("move_weekly_task", {
+        p_task_id: task.id,
+        p_target_day: targetDay,
+        p_before_task_id: beforeTaskId,
+      });
+      if (error) return setSyncError(error.message);
+      await reloadRemote();
+      return;
+    }
+
+    setDashboard((current) => {
+      const activeTasks = current.tasks.filter(
+        (candidate) =>
+          candidate.weeklyPlanId === task.weeklyPlanId && !candidate.removedAt,
+      );
+      const targetTasks = activeTasks
+        .filter(
+          (candidate) => candidate.day === targetDay && candidate.id !== task.id,
+        )
+        .sort((a, b) => a.position - b.position);
+      const insertAt = beforeTaskId
+        ? targetTasks.findIndex((candidate) => candidate.id === beforeTaskId)
+        : targetTasks.length;
+      targetTasks.splice(insertAt < 0 ? targetTasks.length : insertAt, 0, {
+        ...task,
+        day: targetDay,
+      });
+      const targetPositions = new Map(
+        targetTasks.map((candidate, position) => [candidate.id, position]),
+      );
+      const sourcePositions = new Map(
+        activeTasks
+          .filter(
+            (candidate) =>
+              candidate.day === task.day &&
+              candidate.id !== task.id &&
+              task.day !== targetDay,
+          )
+          .sort((a, b) => a.position - b.position)
+          .map((candidate, position) => [candidate.id, position]),
+      );
+      return {
+        ...current,
+        tasks: current.tasks.map((candidate) => {
+          if (candidate.id === task.id) {
+            return {
+              ...candidate,
+              day: targetDay,
+              position: targetPositions.get(candidate.id) ?? 0,
+            };
+          }
+          if (targetPositions.has(candidate.id)) {
+            return {
+              ...candidate,
+              position: targetPositions.get(candidate.id) as number,
+            };
+          }
+          if (sourcePositions.has(candidate.id)) {
+            return {
+              ...candidate,
+              position: sourcePositions.get(candidate.id) as number,
+            };
+          }
+          return candidate;
+        }),
+      };
+    });
+  }
+
+  async function dropTaskOnDay(
+    targetDay: Day,
+    beforeTaskId: string | null = null,
+  ) {
+    const draggedTask = selectedTasks.find(
       (candidate) => candidate.id === draggedTaskId,
     );
-    const to = dayTasks.findIndex((candidate) => candidate.id === target.id);
     setDraggedTaskId(null);
-    if (from < 0 || to < 0) return;
-    const [moved] = dayTasks.splice(from, 1);
-    dayTasks.splice(to, 0, moved);
-    await reorderDay(
-      target.day,
-      dayTasks.map((candidate) => candidate.id),
-    );
+    setDragOverDay(null);
+    if (!draggedTask) return;
+    await moveTaskToDay(draggedTask, targetDay, beforeTaskId);
+  }
+
+  async function dropTask(target: Task) {
+    await dropTaskOnDay(target.day, target.id);
   }
 
   async function addTask(event: React.FormEvent<HTMLFormElement>) {
@@ -1738,6 +1836,7 @@ export function WeeklyDashboard() {
             status: "published",
             sickDays: plan ? [] : [...sickDays],
             dailyRewards: {},
+            inspirationalQuote: "",
             createdAt: now,
             completedAt: null,
           };
@@ -2473,6 +2572,11 @@ export function WeeklyDashboard() {
                   ? "Choose any task, on any day. Every finished task moves you closer to free time."
                   : "Past effort stays visible without changing earned XP."}
             </p>
+            {plan?.inspirationalQuote ? (
+              <blockquote className="learner-weekly-quote">
+                {plan.inspirationalQuote}
+              </blockquote>
+            ) : null}
           </div>
           <div className="xp-summary">
             <ProgressTracker
@@ -2988,36 +3092,69 @@ export function WeeklyDashboard() {
                   role="tabpanel"
                   aria-label="Weekly planning"
                 >
-                <section
-                  className="weekly-editor"
-                  aria-labelledby="weekly-plan-title"
-                >
-                  <div className="weekly-editor-heading">
-                    <div>
-                      <p className="label">Parent controls</p>
-                      <h2 id="weekly-plan-title">Weekly plan</h2>
-                      <p>
-                        Open a day to manage its tasks, support, reward, and
-                        observations.
-                      </p>
+                  <section
+                    className="weekly-editor"
+                    aria-labelledby="weekly-plan-title"
+                  >
+                    <div className="weekly-editor-heading">
+                      <div>
+                        <p className="label">Parent controls</p>
+                        <h2 id="weekly-plan-title">Weekly plan</h2>
+                        <p>
+                          Drag task cards between days, or use the card controls
+                          to plan with touch or keyboard.
+                        </p>
+                      </div>
+                      <div className="weekly-editor-summary">
+                        <span
+                          className={`status-badge ${editable ? "status-current" : ""}`}
+                        >
+                          {isFirstPlanSetup
+                            ? "Setup"
+                            : selectedPlan === "legacy"
+                              ? "Legacy"
+                              : plan
+                                ? planTimingLabel(plan)
+                                : "History"}
+                        </span>
+                        <strong>{plannedXP} XP planned</strong>
+                      </div>
                     </div>
-                    <div className="weekly-editor-summary">
-                      <span
-                        className={`status-badge ${editable ? "status-current" : ""}`}
-                      >
-                        {isFirstPlanSetup
-                          ? "Setup"
-                          : selectedPlan === "legacy"
-                            ? "Legacy"
-                            : plan
-                              ? planTimingLabel(plan)
-                              : "History"}
-                      </span>
-                      <strong>{plannedXP} XP planned</strong>
-                    </div>
-                  </div>
 
-                  <div className="parent-days">
+                    {plan ? (
+                      <div className="weekly-quote-editor">
+                        <div>
+                          <strong>Weekly inspiration</strong>
+                          <p>This message appears on the learner&apos;s page.</p>
+                        </div>
+                        {editable ? (
+                          <label className="field-label">
+                            Inspirational quote
+                            <textarea
+                              key={`${plan.id}-${plan.inspirationalQuote}`}
+                              className="field weekly-quote-field"
+                              defaultValue={plan.inspirationalQuote}
+                              placeholder="Example: Small steps every day add up to big things."
+                              maxLength={280}
+                              onBlur={(event) =>
+                                void saveInspirationalQuote(
+                                  event.currentTarget.value,
+                                )
+                              }
+                            />
+                          </label>
+                        ) : (
+                          <blockquote>
+                            {plan.inspirationalQuote || "No quote was set."}
+                          </blockquote>
+                        )}
+                      </div>
+                    ) : null}
+
+                    <div
+                      className="parent-week-board"
+                      aria-label="Weekly task board"
+                    >
                     {DAYS.map((day) => {
                       const dayTasks = orderedTasks.filter(
                         (task) => task.day === day,
@@ -3036,17 +3173,32 @@ export function WeeklyDashboard() {
                         dayTasks.some((task) => task.id === taskId),
                       );
                       return (
-                        <details
+                        <section
                           key={day}
-                          className="parent-day"
-                          open={
-                            isFirstPlanSetup ||
-                            day === todayDay ||
-                            dayNeedsAttention ||
-                            undefined
-                          }
+                          className={`parent-day-column ${
+                            dragOverDay === day
+                              ? "parent-day-column-over"
+                              : ""
+                          }`}
+                          onDragEnter={() => setDragOverDay(day)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDragLeave={(event) => {
+                            if (
+                              !event.currentTarget.contains(
+                                event.relatedTarget as Node,
+                              )
+                            ) {
+                              setDragOverDay((current) =>
+                                current === day ? null : current,
+                              );
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            void dropTaskOnDay(day);
+                          }}
                         >
-                          <summary>
+                          <header className="parent-day-header">
                             <span className="parent-day-title">
                               <strong>{day}</strong>
                               <small>
@@ -3062,37 +3214,40 @@ export function WeeklyDashboard() {
                                 <b>Reward set</b>
                               ) : null}
                             </span>
-                          </summary>
+                          </header>
 
                           <div className="parent-day-content">
                             {plan && editable ? (
-                              <div className="day-settings">
-                                <label className="field-label">
-                                  Daily reward
-                                  <input
-                                    key={`${plan.id}-${day}-${plan.dailyRewards[day] ?? ""}`}
-                                    className="field"
-                                    defaultValue={plan.dailyRewards[day] ?? ""}
-                                    placeholder="Example: choose tonight's game"
-                                    maxLength={160}
-                                    onBlur={(event) =>
-                                      void saveDailyReward(
-                                        day,
-                                        event.currentTarget.value,
-                                      )
-                                    }
-                                  />
-                                </label>
-                                <button
-                                  className={`sick-toggle ${sickDays.includes(day) ? "sick-toggle-active" : ""}`}
-                                  type="button"
-                                  onClick={() => void toggleSickDay(day)}
-                                >
-                                  {sickDays.includes(day)
-                                    ? "Remove sick day"
-                                    : "Mark sick day"}
-                                </button>
-                              </div>
+                              <details className="day-settings">
+                                <summary>Day settings</summary>
+                                <div className="day-settings-fields">
+                                  <label className="field-label">
+                                    Daily reward
+                                    <input
+                                      key={`${plan.id}-${day}-${plan.dailyRewards[day] ?? ""}`}
+                                      className="field"
+                                      defaultValue={plan.dailyRewards[day] ?? ""}
+                                      placeholder="Choose tonight's game"
+                                      maxLength={160}
+                                      onBlur={(event) =>
+                                        void saveDailyReward(
+                                          day,
+                                          event.currentTarget.value,
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <button
+                                    className={`sick-toggle ${sickDays.includes(day) ? "sick-toggle-active" : ""}`}
+                                    type="button"
+                                    onClick={() => void toggleSickDay(day)}
+                                  >
+                                    {sickDays.includes(day)
+                                      ? "Remove sick day"
+                                      : "Mark sick day"}
+                                  </button>
+                                </div>
+                              </details>
                             ) : null}
 
                             <div className="parent-task-list">
@@ -3115,13 +3270,22 @@ export function WeeklyDashboard() {
                                     key={task.id}
                                     className="parent-task-row"
                                     draggable={Boolean(plan && editable)}
-                                    onDragStart={() =>
-                                      setDraggedTaskId(task.id)
-                                    }
+                                    onDragStart={() => {
+                                      setDraggedTaskId(task.id);
+                                      setDragOverDay(day);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggedTaskId(null);
+                                      setDragOverDay(null);
+                                    }}
                                     onDragOver={(event) =>
                                       event.preventDefault()
                                     }
-                                    onDrop={() => void dropTask(task)}
+                                    onDrop={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      void dropTask(task);
+                                    }}
                                   >
                                     <div className="parent-task-main">
                                       {plan && editable ? (
@@ -3184,6 +3348,29 @@ export function WeeklyDashboard() {
                                         </button>
                                       ) : plan && editable ? (
                                         <>
+                                          <label>
+                                            Day
+                                            <select
+                                              className="support-select"
+                                              value={task.day}
+                                              onChange={(event) =>
+                                                void moveTaskToDay(
+                                                  task,
+                                                  event.target.value as Day,
+                                                )
+                                              }
+                                              aria-label={`Day for ${task.name}`}
+                                            >
+                                              {DAYS.map((optionDay) => (
+                                                <option
+                                                  key={optionDay}
+                                                  value={optionDay}
+                                                >
+                                                  {optionDay}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </label>
                                           <label>
                                             Support
                                             <select
@@ -3327,7 +3514,7 @@ export function WeeklyDashboard() {
                               ) : null}
                             </div>
                           </div>
-                        </details>
+                        </section>
                       );
                     })}
                   </div>
