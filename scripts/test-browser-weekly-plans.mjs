@@ -63,13 +63,22 @@ async function enterParentView() {
       const workspace = document.querySelector(".parent-workspace");
       const editorHeading = document.querySelector(".weekly-editor-heading");
       const board = document.querySelector(".parent-week-board");
+      const lastDay = document.querySelector(
+        ".parent-week-board .parent-day-column:last-child",
+      );
       const sidebar = document.querySelector(".parent-sidebar");
       const progress = document.querySelector(".parent-xp-summary");
       const firstUtility = document.querySelector(".parent-utilities .utility-card");
       if (
-        ![workspace, editorHeading, board, sidebar, progress, firstUtility].every(
-          (element) => element instanceof HTMLElement,
-        )
+        ![
+          workspace,
+          editorHeading,
+          board,
+          lastDay,
+          sidebar,
+          progress,
+          firstUtility,
+        ].every((element) => element instanceof HTMLElement)
       ) {
         throw new Error("Parent planning layout is incomplete.");
       }
@@ -80,6 +89,8 @@ async function enterParentView() {
         sidebarTop: sidebar.getBoundingClientRect().top,
         boardLeft: board.getBoundingClientRect().left,
         boardRight: board.getBoundingClientRect().right,
+        lastDayRight: lastDay.getBoundingClientRect().right,
+        sidebarPosition: getComputedStyle(sidebar).position,
         progressBottom: progress.getBoundingClientRect().bottom,
         utilityTop: firstUtility.getBoundingClientRect().top,
       };
@@ -96,6 +107,14 @@ async function enterParentView() {
       Math.abs(planningLayout.boardLeft - planningLayout.workspaceLeft) <= 2 &&
         Math.abs(planningLayout.boardRight - planningLayout.workspaceRight) <= 2,
       `Week board did not span the Parent workspace: ${JSON.stringify(planningLayout)}`,
+    );
+    assert(
+      planningLayout.lastDayRight <= planningLayout.boardRight + 2,
+      `Weekend columns exceeded the visible board: ${JSON.stringify(planningLayout)}`,
+    );
+    assert(
+      planningLayout.sidebarPosition === "static",
+      `XP sidebar could float over the board: ${JSON.stringify(planningLayout)}`,
     );
     testedParentNavigation = true;
   }
@@ -157,6 +176,14 @@ try {
     .waitFor({ timeout: 15000 });
   await page.getByRole("img", { name: "Vail Valley Unbound" }).waitFor();
   await page.getByText("Remote learning", { exact: true }).first().waitFor();
+  const xpWallet = page.locator(".learner-xp-wallet");
+  await xpWallet.getByText("Total XP", { exact: true }).waitFor();
+  await xpWallet.getByText("0", { exact: true }).waitFor();
+  assert(
+    (await page.getByText("Treasure box", { exact: true }).count()) === 0 &&
+      (await page.getByText("Coming soon", { exact: true }).count()) === 0,
+    "Learner XP wallet still showed placeholder treasure-box copy.",
+  );
 
   await page
     .getByText(
@@ -231,18 +258,26 @@ try {
   const writingCard = wednesdayPlan
     .locator(".parent-task-row")
     .filter({ hasText: "Write one great paragraph" });
-  await writingCard.dragTo(thursdayPlan);
-  await thursdayPlan
+  await writingCard.dispatchEvent("dragstart");
+  await thursdayPlan.dispatchEvent("dragover");
+  await thursdayPlan.dispatchEvent("drop");
+  await writingCard.dispatchEvent("dragend");
+  const movedWritingCard = thursdayPlan
     .locator(".parent-task-row")
-    .filter({ hasText: "Write one great paragraph" })
-    .waitFor();
-  await thursdayPlan
-    .getByLabel("Day for Write one great paragraph")
-    .selectOption("Wednesday");
+    .filter({ hasText: "Write one great paragraph" });
+  await movedWritingCard.waitFor();
+  await movedWritingCard.dispatchEvent("dragstart");
+  await wednesdayPlan.dispatchEvent("dragover");
+  await wednesdayPlan.dispatchEvent("drop");
+  await movedWritingCard.dispatchEvent("dragend");
   await wednesdayPlan
     .locator(".parent-task-row")
     .filter({ hasText: "Write one great paragraph" })
     .waitFor();
+  assert(
+    (await page.getByLabel(/^Day for /).count()) === 0,
+    "Redundant per-card day selectors remained visible.",
+  );
   const daySettings = wednesdayPlan.locator(".day-settings");
   await daySettings.locator("summary").click();
   const wednesdayReward = wednesdayPlan.getByLabel("Daily reward");
@@ -305,13 +340,9 @@ try {
     `Unexpected completion total: ${completedWeeklyText}`,
   );
   assert(
-    /25/.test(await page.locator(".lifetime-xp").innerText()),
+    /25/.test(await page.locator(".treasure-box").innerText()),
     "Lifetime XP did not increase after completion.",
   );
-  await page
-    .locator(".treasure-box")
-    .getByText("Coming soon", { exact: true })
-    .waitFor();
 
   await verifyCelebrationDate("Wednesday");
 
@@ -331,7 +362,7 @@ try {
     `Unexpected undo total: ${undoneWeeklyText}`,
   );
   assert(
-    /0/.test(await page.locator(".lifetime-xp").innerText()),
+    /0/.test(await page.locator(".treasure-box").innerText()),
     "Lifetime XP did not reflect the compensating undo event.",
   );
 

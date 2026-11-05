@@ -2434,20 +2434,13 @@ export function WeeklyDashboard() {
               className="learner-xp-wallet"
               aria-label={`${lifetimeEarnedXP} total XP earned`}
             >
-              <div className="lifetime-xp">
-                <span>Total XP</span>
-                <strong>{lifetimeEarnedXP.toLocaleString()}</strong>
-              </div>
-              <div
-                className="treasure-box"
-                aria-label="Treasure box coming soon"
-              >
+              <div className="treasure-box">
                 <span className="treasure-box-icon" aria-hidden="true">
                   <i />
                 </span>
-                <span>
-                  <strong>Treasure box</strong>
-                  <small>Coming soon</small>
+                <span className="treasure-box-copy">
+                  <small>Total XP</small>
+                  <strong>{lifetimeEarnedXP.toLocaleString()}</strong>
                 </span>
               </div>
             </div>
@@ -3348,29 +3341,6 @@ export function WeeklyDashboard() {
                                         </button>
                                       ) : plan && editable ? (
                                         <>
-                                          <label>
-                                            Day
-                                            <select
-                                              className="support-select"
-                                              value={task.day}
-                                              onChange={(event) =>
-                                                void moveTaskToDay(
-                                                  task,
-                                                  event.target.value as Day,
-                                                )
-                                              }
-                                              aria-label={`Day for ${task.name}`}
-                                            >
-                                              {DAYS.map((optionDay) => (
-                                                <option
-                                                  key={optionDay}
-                                                  value={optionDay}
-                                                >
-                                                  {optionDay}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </label>
                                           <label>
                                             Support
                                             <select

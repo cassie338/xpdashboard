@@ -734,19 +734,11 @@ textarea:focus-visible {
   gap: 0.55rem;
   margin-left: auto;
 }
-.lifetime-xp,
 .treasure-box {
   border: 1px solid rgb(119 53 183 / 16%);
   border-radius: 1rem;
   background: #fbf9fd;
 }
-.lifetime-xp {
-  display: grid;
-  min-width: 7rem;
-  align-content: center;
-  padding: 0.55rem 0.85rem;
-}
-.lifetime-xp span,
 .treasure-box small {
   color: var(--muted);
   font-size: 0.65rem;
@@ -754,22 +746,20 @@ textarea:focus-visible {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.lifetime-xp strong {
-  color: var(--purple);
-  font-size: 1.45rem;
-  line-height: 1;
-}
 .treasure-box {
   display: flex;
+  min-width: 11rem;
   align-items: center;
   gap: 0.65rem;
   padding: 0.45rem 0.75rem;
 }
-.treasure-box > span:last-child {
+.treasure-box-copy {
   display: grid;
 }
-.treasure-box > span:last-child strong {
-  font-size: 0.78rem;
+.treasure-box-copy strong {
+  color: var(--purple);
+  font-size: 1.45rem;
+  line-height: 1;
 }
 .treasure-box-icon {
   position: relative;
@@ -1596,10 +1586,8 @@ textarea:focus-visible {
   gap: 0.3rem;
 }
 .parent-task-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: flex-end;
+  display: grid;
+  align-items: stretch;
   gap: 0.6rem;
   border-top: 1px solid var(--line);
   background: #faf8fc;
@@ -1607,7 +1595,6 @@ textarea:focus-visible {
 }
 .parent-task-controls label {
   display: grid;
-  flex: 1;
   gap: 0.15rem;
   color: var(--muted);
   font-size: 0.62rem;
@@ -1620,6 +1607,9 @@ textarea:focus-visible {
   min-width: 0;
   margin: 0;
   text-transform: none;
+}
+.parent-task-controls .remove-button {
+  width: 100%;
 }
 .preserved-label {
   color: var(--muted);
@@ -1910,7 +1900,6 @@ textarea:focus-visible {
   .auth-card .brand-product-name {
     font-size: 1.5rem;
   }
-  .lifetime-xp,
   .treasure-box {
     flex: 1;
   }
@@ -1995,14 +1984,15 @@ textarea:focus-visible {
   .parent-week-board {
     grid-column: 1 / -1;
     grid-row: 3;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    min-width: 0;
     border: 1px solid var(--line);
     border-radius: 0 0 1.5rem 1.5rem;
   }
   .parent-sidebar {
     grid-column: 2;
     grid-row: 1 / 3;
-    position: sticky;
-    top: 1rem;
+    position: static;
   }
 }
 
