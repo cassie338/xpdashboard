@@ -60,16 +60,26 @@ async function enterParentView() {
       "The learner motivational panel remained visible in Parent view.",
     );
     const planningLayout = await page.evaluate(() => {
-      const editor = document.querySelector(".weekly-editor");
+      const workspace = document.querySelector(".parent-workspace");
+      const editorHeading = document.querySelector(".weekly-editor-heading");
+      const board = document.querySelector(".parent-week-board");
       const sidebar = document.querySelector(".parent-sidebar");
       const progress = document.querySelector(".parent-xp-summary");
       const firstUtility = document.querySelector(".parent-utilities .utility-card");
-      if (![editor, sidebar, progress, firstUtility].every((element) => element instanceof HTMLElement)) {
+      if (
+        ![workspace, editorHeading, board, sidebar, progress, firstUtility].every(
+          (element) => element instanceof HTMLElement,
+        )
+      ) {
         throw new Error("Parent planning layout is incomplete.");
       }
       return {
-        editorTop: editor.getBoundingClientRect().top,
+        workspaceLeft: workspace.getBoundingClientRect().left,
+        workspaceRight: workspace.getBoundingClientRect().right,
+        editorTop: editorHeading.getBoundingClientRect().top,
         sidebarTop: sidebar.getBoundingClientRect().top,
+        boardLeft: board.getBoundingClientRect().left,
+        boardRight: board.getBoundingClientRect().right,
         progressBottom: progress.getBoundingClientRect().bottom,
         utilityTop: firstUtility.getBoundingClientRect().top,
       };
@@ -81,6 +91,11 @@ async function enterParentView() {
     assert(
       planningLayout.utilityTop >= planningLayout.progressBottom,
       `Planning controls were not below the XP tracker: ${JSON.stringify(planningLayout)}`,
+    );
+    assert(
+      Math.abs(planningLayout.boardLeft - planningLayout.workspaceLeft) <= 2 &&
+        Math.abs(planningLayout.boardRight - planningLayout.workspaceRight) <= 2,
+      `Week board did not span the Parent workspace: ${JSON.stringify(planningLayout)}`,
     );
     testedParentNavigation = true;
   }
