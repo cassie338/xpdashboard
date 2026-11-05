@@ -136,11 +136,7 @@ const emptyProfileDraft = {
 };
 
 const parentSections: Array<{ id: ParentSection; label: string }> = [
-  { id: "overview", label: "Overview" },
   { id: "weekly-planning", label: "Weekly Planning" },
-  { id: "learner-profile", label: "Learner Profile" },
-  { id: "academics", label: "Academics" },
-  { id: "quest-builder", label: "Quest Builder" },
 ];
 
 const STORAGE_KEY = "xp-dashboard-week-v2";
@@ -637,7 +633,7 @@ export function WeeklyDashboard() {
   const supabase = getSupabaseBrowserClient();
   const [view, setView] = useState<View>("learner");
   const [parentSection, setParentSection] =
-    useState<ParentSection>("overview");
+    useState<ParentSection>("weekly-planning");
   const [selectedPlan, setSelectedPlan] = useState<PlanSelection>("legacy");
   const [excludedRolloverTasks, setExcludedRolloverTasks] = useState<
     Set<string>
@@ -718,7 +714,7 @@ export function WeeklyDashboard() {
             setUserId(session?.user.id ?? null);
             setReady(false);
             setView("learner");
-            setParentSection("overview");
+            setParentSection("weekly-planning");
             setParentAccessToken(null);
             setParentSessionExpiresAt(null);
             setLearnerRecord(null);
@@ -1878,7 +1874,7 @@ export function WeeklyDashboard() {
       setParentSessionExpiresAt(Date.now() + 30 * 60 * 1000);
       setAssessmentSourcesError("");
     }
-    setParentSection("overview");
+    setParentSection("weekly-planning");
     setView("parent");
     setShowParentGate(false);
     setParentAnswer("");
