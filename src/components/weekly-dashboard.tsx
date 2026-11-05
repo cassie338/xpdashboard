@@ -2549,7 +2549,7 @@ export function WeeklyDashboard() {
                   ? "Legacy / Unassigned"
                   : weekLabel(selectedWeekStart)}
             </p>
-            <h2 className="mt-2 max-w-2xl text-3xl font-black leading-[1.04] tracking-[-.03em] sm:text-4xl">
+            <h2 className="mt-2 max-w-2xl text-3xl font-black leading-[1.04] tracking-[-.03em]">
               {isFirstPlanSetup
                 ? "Choose this week's tasks."
                 : allComplete
@@ -2558,7 +2558,7 @@ export function WeeklyDashboard() {
                     ? "Finish early. Enjoy your whole day free."
                     : "A preserved record of effort."}
             </h2>
-            <p className="mt-3 max-w-xl text-sm font-semibold text-[var(--muted)] sm:text-base">
+            <p className="mt-2 max-w-xl text-sm font-semibold text-[var(--muted)] sm:text-base">
               {isFirstPlanSetup
                 ? "Open Parent view, adjust what belongs this week, then start the week."
                 : editable
@@ -2594,10 +2594,10 @@ export function WeeklyDashboard() {
         ) : null}
 
         {view === "learner" ? (
-          <section className="mt-5">
-            <div className="mb-4">
+          <section className="learner-focus-section mt-4">
+            <div className="mb-2">
               <p className="label">One step at a time</p>
-              <h2 className="mt-1 text-3xl font-black">What do I do next?</h2>
+              <h2 className="mt-1 text-2xl font-black">What do I do next?</h2>
             </div>
 
             {editable && focusedTask ? (
@@ -2611,21 +2611,21 @@ export function WeeklyDashboard() {
                         : "Independent work"}
                     </span>
                   </div>
-                  <p className="mt-5 text-sm font-black uppercase tracking-[.16em] text-[var(--muted)]">
+                  <p className="mt-3 text-sm font-black uppercase tracking-[.16em] text-[var(--muted)]">
                     {activeSession
                       ? "You are working on"
                       : focusedTask.id === suggestedTask?.id
                         ? "Suggested next"
                         : "You chose"}
                   </p>
-                  <h3 className="mt-2 text-4xl font-black leading-tight tracking-[-.03em]">
+                  <h3 className="mt-1 text-3xl font-black leading-tight tracking-[-.03em]">
                     {focusedTask.name}
                   </h3>
-                  <p className="mt-2 font-bold text-[var(--muted)]">
+                  <p className="mt-1 font-bold text-[var(--muted)]">
                     {focusedTask.category} · Earn {focusedTask.xp} XP for your
                     effort
                   </p>
-                  <div className="mt-6 flex flex-wrap gap-3">
+                  <div className="mt-4 flex flex-wrap gap-3">
                     {!activeSession ? (
                       <button
                         className="primary-button focus-action"
@@ -2755,7 +2755,7 @@ export function WeeklyDashboard() {
             )}
 
             {editable && incompleteTasks.length > 1 ? (
-              <label className="mt-4 block max-w-xl text-sm font-black">
+              <label className="learner-task-chooser mt-3 block max-w-xl text-sm font-black">
                 Want to choose something else?
                 <select
                   className="field mt-2"
@@ -2775,10 +2775,10 @@ export function WeeklyDashboard() {
               </label>
             ) : null}
 
-            <div className="mb-4 mt-8 flex items-end justify-between">
+            <div className="learner-week-heading mb-3 mt-4 flex items-end justify-between">
               <div>
                 <p className="label">Monday through Sunday</p>
-                <h2 className="mt-1 text-3xl font-black">My whole week</h2>
+                <h2 className="mt-1 text-2xl font-black">My whole week</h2>
               </div>
               <p className="hidden font-bold text-[var(--muted)] sm:block">
                 {isFirstPlanSetup

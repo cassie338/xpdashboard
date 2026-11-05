@@ -127,7 +127,9 @@ async function verifyCelebrationDate(day) {
   );
   if (day === today) {
     await celebration.waitFor({ state: "visible" });
-    await celebration.getByRole("button", { name: "Awesome!" }).click();
+    await celebration
+      .getByRole("button", { name: "Awesome!" })
+      .click({ force: true });
   } else {
     assert(
       !(await celebration.isVisible()),
@@ -289,6 +291,31 @@ try {
 
   await page.getByRole("button", { name: "Learner", exact: true }).click();
   await page.getByText(weeklyQuote, { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const learnerFold = await page.evaluate(() => {
+    const summary = document.querySelector(".overview-panel");
+    const focus = document.querySelector(".focus-card");
+    const week = document.querySelector(".week-grid");
+    if (
+      !(summary instanceof HTMLElement) ||
+      !(focus instanceof HTMLElement) ||
+      !(week instanceof HTMLElement)
+    ) {
+      throw new Error("Learner planning sections are incomplete.");
+    }
+    return {
+      viewportHeight: window.innerHeight,
+      summaryHeight: summary.getBoundingClientRect().height,
+      focusHeight: focus.getBoundingClientRect().height,
+      weekTop: week.getBoundingClientRect().top,
+    };
+  });
+  assert(
+    learnerFold.summaryHeight <= 220 &&
+      learnerFold.focusHeight <= 340 &&
+      learnerFold.weekTop <= learnerFold.viewportHeight - 60,
+    `Learner week choices were not visible above the fold: ${JSON.stringify(learnerFold)}`,
+  );
   const firstTask = page
     .locator(".day-card")
     .filter({
@@ -716,6 +743,7 @@ try {
       removedWednesdayTask: true,
       currentWeekEditableTasks: 4,
       legacyDisabledTasks: 5,
+      learnerFold,
       mobileMetrics,
       parentMobileMetrics,
       productionSupabaseRequests: forbiddenRequests.length,
