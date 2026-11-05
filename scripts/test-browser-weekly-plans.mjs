@@ -49,26 +49,41 @@ async function enterParentView() {
   }
   await dialog.getByLabel("Parent birthday").fill(parentBirthday);
   await dialog.getByRole("button", { name: "Continue" }).click();
-  const parentNavigation = page.getByRole("navigation", {
-    name: "Parent dashboard sections",
-  });
-  await parentNavigation
-    .getByRole("tab", { name: "Weekly Planning", exact: true })
-    .waitFor();
+  await page.getByRole("heading", { name: "Weekly plan" }).waitFor();
   if (!testedParentNavigation) {
     assert(
-      (await parentNavigation.getByRole("tab").count()) === 1,
-      "Parent navigation showed a section other than Weekly Planning.",
+      (await page.getByRole("navigation", { name: "Parent dashboard sections" }).count()) === 0,
+      "The redundant parent section navigation remained visible.",
     );
-    for (const hiddenSection of ["Overview", "Learner Profile", "Academics", "Quest Builder"]) {
-      assert(
-        (await parentNavigation.getByRole("tab", { name: hiddenSection, exact: true }).count()) === 0,
-        `${hiddenSection} remained visible in parent navigation.`,
-      );
-    }
+    assert(
+      (await page.getByText("Finish early. Enjoy your whole day free.", { exact: true }).count()) === 0,
+      "The learner motivational panel remained visible in Parent view.",
+    );
+    const planningLayout = await page.evaluate(() => {
+      const editor = document.querySelector(".weekly-editor");
+      const sidebar = document.querySelector(".parent-sidebar");
+      const progress = document.querySelector(".parent-xp-summary");
+      const firstUtility = document.querySelector(".parent-utilities .utility-card");
+      if (![editor, sidebar, progress, firstUtility].every((element) => element instanceof HTMLElement)) {
+        throw new Error("Parent planning layout is incomplete.");
+      }
+      return {
+        editorTop: editor.getBoundingClientRect().top,
+        sidebarTop: sidebar.getBoundingClientRect().top,
+        progressBottom: progress.getBoundingClientRect().bottom,
+        utilityTop: firstUtility.getBoundingClientRect().top,
+      };
+    });
+    assert(
+      Math.abs(planningLayout.editorTop - planningLayout.sidebarTop) <= 2,
+      `Weekly Plan and XP tracker were not aligned: ${JSON.stringify(planningLayout)}`,
+    );
+    assert(
+      planningLayout.utilityTop >= planningLayout.progressBottom,
+      `Planning controls were not below the XP tracker: ${JSON.stringify(planningLayout)}`,
+    );
     testedParentNavigation = true;
   }
-  await page.getByRole("heading", { name: "Weekly plan" }).waitFor();
 }
 
 async function verifyCelebrationDate(day) {

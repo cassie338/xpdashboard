@@ -1627,6 +1627,17 @@ textarea:focus-visible {
   height: fit-content;
   gap: 0.7rem;
 }
+.parent-sidebar {
+  display: grid;
+  height: fit-content;
+  gap: 0.7rem;
+}
+.parent-xp-summary {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  box-shadow: 0 14px 35px rgb(63 37 81 / 7%);
+}
 .utility-card {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1867,6 +1878,9 @@ textarea:focus-visible {
     border-top: 0;
     border-left: 1px solid var(--line);
   }
+  .parent-xp-summary {
+    border: 1px solid var(--line);
+  }
   .focus-card {
     grid-template-columns: minmax(0, 1.5fr) minmax(17rem, 0.5fr);
   }
@@ -1888,7 +1902,7 @@ textarea:focus-visible {
     grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.34fr);
     align-items: start;
   }
-  .parent-utilities {
+  .parent-sidebar {
     position: sticky;
     top: 1rem;
   }

@@ -135,10 +135,6 @@ const emptyProfileDraft = {
   additionalNotes: "",
 };
 
-const parentSections: Array<{ id: ParentSection; label: string }> = [
-  { id: "weekly-planning", label: "Weekly Planning" },
-];
-
 const STORAGE_KEY = "xp-dashboard-week-v2";
 const LEGACY_STORAGE_KEY = "xp-dashboard-week-v1";
 const confettiColors = [
@@ -2422,30 +2418,6 @@ export function WeeklyDashboard() {
           </div>
         </header>
 
-        {view === "parent" ? (
-          <nav
-            className="parent-section-nav mt-5"
-            aria-label="Parent dashboard sections"
-          >
-            <div role="tablist" aria-label="Parent dashboard sections">
-              {parentSections.map((section) => (
-                <button
-                  key={section.id}
-                  id={`parent-tab-${section.id}`}
-                  className={`parent-section-tab ${parentSection === section.id ? "parent-section-tab-active" : ""}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={parentSection === section.id}
-                  aria-controls={`parent-panel-${section.id}`}
-                  onClick={() => setParentSection(section.id)}
-                >
-                  {section.label}
-                </button>
-              ))}
-            </div>
-          </nav>
-        ) : null}
-
         {syncError ? (
           <p
             className="mt-4 rounded-xl bg-[#fff0ec] p-3 text-sm font-bold text-[var(--danger)]"
@@ -2475,9 +2447,7 @@ export function WeeklyDashboard() {
           ) : null
         ) : null}
 
-        {view === "learner" ||
-        parentSection === "overview" ||
-        parentSection === "weekly-planning" ? (
+        {view === "learner" ? (
           <section className="overview-panel mt-5">
           <div className="reminder-panel">
             <p className="text-xs font-black uppercase tracking-[.18em] text-[var(--purple)]">
@@ -2505,19 +2475,6 @@ export function WeeklyDashboard() {
             </p>
           </div>
           <div className="xp-summary">
-            {showDailyProgress && view === "parent" ? (
-              <ProgressTracker
-                label="Daily"
-                earned={dailyXP}
-                target={todayPlannedXP}
-                tone="daily"
-                detail={
-                  todayIsSick
-                    ? "Sick Day · Tasks were optional"
-                    : `${todayDay}'s assigned tasks`
-                }
-              />
-            ) : null}
             <ProgressTracker
               label={
                 isFirstPlanSetup
@@ -3029,7 +2986,7 @@ export function WeeklyDashboard() {
                   id="parent-panel-weekly-planning"
                   className="parent-workspace"
                   role="tabpanel"
-                  aria-labelledby="parent-tab-weekly-planning"
+                  aria-label="Weekly planning"
                 >
                 <section
                   className="weekly-editor"
@@ -3376,7 +3333,40 @@ export function WeeklyDashboard() {
                   </div>
                 </section>
 
-                <aside className="parent-utilities">
+                <div className="parent-sidebar">
+                  <div className="xp-summary parent-xp-summary">
+                    {showDailyProgress ? (
+                      <ProgressTracker
+                        label="Daily"
+                        earned={dailyXP}
+                        target={todayPlannedXP}
+                        tone="daily"
+                        detail={
+                          todayIsSick
+                            ? "Sick Day · Tasks were optional"
+                            : `${todayDay}'s assigned tasks`
+                        }
+                      />
+                    ) : null}
+                    <ProgressTracker
+                      label={
+                        isFirstPlanSetup
+                          ? "Weekly preview"
+                          : selectedPlan === "legacy"
+                            ? "Legacy"
+                            : "Weekly"
+                      }
+                      earned={isFirstPlanSetup ? 0 : earnedXP}
+                      target={plannedXP}
+                      tone="weekly"
+                      detail={
+                        isFirstPlanSetup
+                          ? `${rolloverTasks.length} tasks selected · Parent setup needed`
+                          : `${expectedTasksLeft} expected tasks left · Sick Days removed`
+                      }
+                    />
+                  </div>
+                  <aside className="parent-utilities">
                   <details
                     className="utility-card"
                     open={isFirstPlanSetup || undefined}
@@ -3574,7 +3564,8 @@ export function WeeklyDashboard() {
                       </div>
                     </details>
                   ) : null}
-                </aside>
+                  </aside>
+                </div>
                 </div>
               ) : null}
             </section>
