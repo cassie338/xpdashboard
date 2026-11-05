@@ -93,15 +93,18 @@ export const assessmentExtractionSchema = z
     });
   });
 
+const evidenceBulletSchema = z
+  .object({
+    statement: z.string().trim().min(1).max(500),
+    evidence: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+
 export const learnerAcademicSummarySchema = z
   .object({
-    learnerOverview: z.string().trim().min(1).max(5000),
-    strengths: z.string().trim().min(1).max(5000),
-    developingSkills: z.string().trim().min(1).max(5000),
-    learningPatterns: z.string().trim().min(1).max(5000),
-    areasToInvestigate: z.string().trim().min(1).max(5000),
-    teachingRecommendations: z.string().trim().min(1).max(5000),
-    parentContext: z.string().trim().min(1).max(5000),
+    strengths: z.array(evidenceBulletSchema).max(6),
+    areasOfGrowth: z.array(evidenceBulletSchema).max(6),
+    teachingMethods: z.array(evidenceBulletSchema).max(6),
   })
   .strict();
 
@@ -222,9 +225,14 @@ deficit. When evidence and provider wording conflict or are ambiguous, use needs
 `;
 
 const SUMMARY_GENERATION_INSTRUCTIONS = `
-Write a parent-review draft learner summary from only the supplied structured evidence. Treat approved provider
-findings, parent observations, learner profile context, and priorities as separate sources. Do not diagnose,
-award mastery, calculate XP, infer that unassessed skills are weaknesses, or claim that session duration proves
-quality. Explain uncertainty and suggest verification when evidence is sparse or conflicting. Keep the tone
-specific, supportive, and practical. Parent observations are context, not objective assessment results.
+Create three short bullet lists from only the supplied inputs: strengths, areas of growth, and teaching methods.
+Return no more than six bullets in each list. Each bullet must make one concise statement and identify the exact
+supporting input in its evidence field, including a provider result or the date and parent-reported provenance of
+an observation when available. Do not combine unrelated inputs into a generalized claim.
+
+Treat approved provider findings, parent observations, learner profile context, and priorities as separate
+sources. Parent observations are context, not objective assessment results. Areas of growth must be supported by
+tested evidence; never turn a missing or unassessed result into a weakness. Do not diagnose, award mastery,
+calculate XP, or claim that session duration proves quality. Use teaching methods only when an input supports the
+approach; otherwise return an empty list. Keep every statement specific, supportive, and direct.
 `;

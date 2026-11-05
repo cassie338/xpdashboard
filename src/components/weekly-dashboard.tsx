@@ -254,6 +254,13 @@ function formatFileSize(byteSize: number) {
   return `${(byteSize / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function summaryBulletLines(value: string) {
+  return value
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-*•]\s*/, ""))
+    .filter(Boolean);
+}
+
 function BrandLockup({ homeHeading = false }: { homeHeading?: boolean }) {
   const productName = homeHeading ? (
     <h1 className="brand-product-name">Anywhere</h1>
@@ -3858,10 +3865,10 @@ export function WeeklyDashboard() {
                     </div>
                     <div className="profile-record-list">
                       {learnerRecord?.observations.map((observation) => (
-                        <article key={observation.id}>
-                          <strong>{observation.subject || observation.related_skill || "General observation"}</strong>
-                          <p>{observation.observation_text}</p>
-                          <small>Parent reported · {new Date(`${observation.observation_date}T00:00:00`).toLocaleDateString()}</small>
+                        <article className="observation-log-entry" key={observation.id}>
+                          <strong>
+                            {observation.subject || observation.related_skill || "General"} observation · {new Date(`${observation.observation_date}T00:00:00`).toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "2-digit" })}
+                          </strong>
                         </article>
                       ))}
                     </div>
@@ -3899,11 +3906,14 @@ export function WeeklyDashboard() {
                       <details className="summary-version" key={summary.id} open={summary.status === "draft"}>
                         <summary>Version {summary.version} · {summary.status}</summary>
                         <div>
-                          <h4>Overview</h4><p>{summary.learner_overview}</p>
-                          <h4>Strengths</h4><p>{summary.strengths}</p>
-                          <h4>Developing skills</h4><p>{summary.developing_skills}</p>
-                          <h4>Patterns and questions</h4><p>{summary.learning_patterns}</p><p>{summary.areas_to_investigate}</p>
-                          <h4>Teaching recommendations</h4><p>{summary.teaching_recommendations}</p>
+                          <h4>Strengths</h4>
+                          <ul className="summary-bullet-list">
+                            {summaryBulletLines(summary.strengths).map((bullet) => <li key={bullet}>{bullet}</li>)}
+                          </ul>
+                          <h4>Areas of Growth</h4>
+                          <ul className="summary-bullet-list">
+                            {summaryBulletLines(summary.developing_skills).map((bullet) => <li key={bullet}>{bullet}</li>)}
+                          </ul>
                           {summary.status === "draft" ? <button className="primary-button" type="button" disabled={profileActionId === summary.id} onClick={() => void approveProfileSummary(summary.id)}>Approve this version</button> : null}
                         </div>
                       </details>
@@ -3933,15 +3943,15 @@ export function WeeklyDashboard() {
                     </p>
                   </div>
                 </div>
-                {approvedAcademicFindings.length ? (
+                {approvedAcademicFindings.length || approvedAcademicSummary ? (
                   <div className="academic-findings-grid">
-                    {approvedAcademicSummary ? (
+                    {approvedAcademicSummary && approvedAcademicSummary.teaching_recommendations ? (
                       <article className="academic-summary-card">
                         <p className="label">Parent-approved summary · Version {approvedAcademicSummary.version}</p>
-                        <h3>Learner overview</h3>
-                        <p>{approvedAcademicSummary.learner_overview}</p>
-                        <h4>Strengths</h4><p>{approvedAcademicSummary.strengths}</p>
-                        <h4>Developing skills</h4><p>{approvedAcademicSummary.developing_skills}</p>
+                        <h3>Teaching methods</h3>
+                        <ul className="summary-bullet-list">
+                          {summaryBulletLines(approvedAcademicSummary.teaching_recommendations).map((bullet) => <li key={bullet}>{bullet}</li>)}
+                        </ul>
                       </article>
                     ) : null}
                     {approvedAcademicFindings.map((finding) => {

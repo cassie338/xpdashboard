@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { assessmentExtractionSchema } from "./learner-profile-ai";
+import {
+  assessmentExtractionSchema,
+  learnerAcademicSummarySchema,
+} from "./learner-profile-ai";
 
 const baseExtraction = {
   assessmentName: "Sample Reading Report",
@@ -77,5 +80,37 @@ describe("assessmentExtractionSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("learnerAcademicSummarySchema", () => {
+  it("requires concise bullets with explicit supporting evidence", () => {
+    expect(
+      learnerAcademicSummarySchema.safeParse({
+        strengths: [
+          {
+            statement: "Uses vowel cards independently.",
+            evidence: "Parent-reported reading observation dated 2026-11-04.",
+          },
+        ],
+        areasOfGrowth: [
+          {
+            statement: "Short-vowel decoding is developing.",
+            evidence: "Sample Provider report: 6 of 8 short-vowel items correct.",
+          },
+        ],
+        teachingMethods: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects the previous prose-section format", () => {
+    expect(
+      learnerAcademicSummarySchema.safeParse({
+        strengths: "Uses vowel cards independently.",
+        areasOfGrowth: "Short-vowel decoding is developing.",
+        teachingMethods: "Use vowel cards.",
+      }).success,
+    ).toBe(false);
   });
 });

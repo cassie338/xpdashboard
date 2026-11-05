@@ -123,10 +123,22 @@ export async function POST(request: Request) {
         notes: priority.notes,
       })),
     });
+    const formatBullets = (
+      bullets: Array<{ statement: string; evidence: string }>,
+    ) => bullets.map((bullet) => `${bullet.statement} — Evidence: ${bullet.evidence}`).join("\n");
+    const persistedSummary = {
+      learnerOverview: "",
+      strengths: formatBullets(result.summary.strengths),
+      developingSkills: formatBullets(result.summary.areasOfGrowth),
+      learningPatterns: "",
+      areasToInvestigate: "",
+      teachingRecommendations: formatBullets(result.summary.teachingMethods),
+      parentContext: "",
+    };
     const { data: summaryId, error } = await admin.rpc("record_learner_summary_draft", {
       p_user_id: userId,
       p_learner_id: learnerId,
-      p_summary: result.summary,
+      p_summary: persistedSummary,
       p_evidence_snapshot: evidenceSnapshot,
       p_provider_name: result.providerName,
       p_model_name: result.modelName,

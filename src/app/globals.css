@@ -1156,6 +1156,11 @@ textarea:focus-visible {
   border-radius: 0.9rem;
   padding: 0.8rem;
 }
+.profile-record-list .observation-log-entry {
+  padding: 0.7rem 0.8rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 .profile-record-list small,
 .academic-finding-card small {
   color: var(--muted);
@@ -1178,6 +1183,17 @@ textarea:focus-visible {
   display: grid;
   gap: 0.45rem;
   margin-top: 0.8rem;
+}
+.summary-bullet-list {
+  display: grid;
+  gap: 0.5rem;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.summary-bullet-list li::marker {
+  color: var(--purple);
 }
 .academic-findings-grid {
   display: grid;
